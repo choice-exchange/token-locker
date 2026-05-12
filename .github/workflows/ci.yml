@@ -22,8 +22,16 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      - name: Cache cargo registry & target
+      - name: Cache cargo registry (not target/)
         uses: Swatinem/rust-cache@v2
+        with:
+          # injective-test-tube's build.rs runs `go build -buildmode=c-shared`
+          # to produce libinjectivetesttube.so, which has a NEEDED dep on
+          # libwasmvm.x86_64.so found only via Go's pkg cache at build time.
+          # Caching target/ makes Cargo mark the crate "Fresh" and skip the
+          # Go build; rustc then fails to relink because libwasmvm isn't in
+          # the search path. Keep registry+git caches; force a fresh target.
+          cache-targets: false
 
       - name: Unit tests
         run: cargo test --lib --verbose

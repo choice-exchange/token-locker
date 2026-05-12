@@ -160,6 +160,27 @@ impl Schedule {
     pub fn is_cliff(&self) -> bool {
         matches!(self, Schedule::Cliff { .. })
     }
+
+    pub fn type_tag(&self) -> &'static str {
+        match self {
+            Schedule::Cliff { .. } => "cliff",
+            Schedule::SaturatingLinear { .. } => "linear",
+            Schedule::PiecewiseLinear { .. } => "piecewise",
+        }
+    }
+
+    /// First timestamp at which any portion of the lock becomes claimable.
+    /// For `Cliff` this equals `final_unlock_at`; for the vesting schedules
+    /// it's the start of vest.
+    pub fn first_unlock_at(&self) -> Timestamp {
+        match self {
+            Schedule::Cliff { unlock_at } => *unlock_at,
+            Schedule::SaturatingLinear { start_at, .. } => *start_at,
+            Schedule::PiecewiseLinear { steps } => {
+                steps.first().map(|(t, _)| *t).unwrap_or_else(|| Timestamp::from_seconds(0))
+            }
+        }
+    }
 }
 
 /// `total * num / den` using Uint256 to avoid overflow.

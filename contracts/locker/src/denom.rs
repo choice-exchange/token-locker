@@ -45,6 +45,20 @@ impl CheckedDenom {
         }
     }
 
+    pub fn as_str(&self) -> String {
+        match self {
+            CheckedDenom::Native(d) => d.clone(),
+            CheckedDenom::Cw20(a) => a.to_string(),
+        }
+    }
+
+    pub fn kind_str(&self) -> &'static str {
+        match self {
+            CheckedDenom::Native(_) => "native",
+            CheckedDenom::Cw20(_) => "cw20",
+        }
+    }
+
     /// Verify a native deposit. cw20 deposits MUST come through Receive(),
     /// so calling this on a cw20 lock is a contract bug.
     pub fn assert_native_funds(&self, info: &MessageInfo, expected: Uint128) -> Result<(), ContractError> {

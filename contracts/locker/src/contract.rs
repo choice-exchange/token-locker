@@ -155,7 +155,14 @@ fn execute_lock_native(
         .add_messages(forward_fee_msg(deps.storage)?)
         .add_attribute("action", "lock")
         .add_attribute("id", lock.id.to_string())
-        .add_attribute("amount", amount))
+        .add_attribute("amount", amount)
+        .add_attribute("owner", lock.owner.as_str())
+        .add_attribute("creator", lock.creator.as_str())
+        .add_attribute("denom", lock.denom.as_str())
+        .add_attribute("denom_kind", lock.denom.kind_str())
+        .add_attribute("schedule_type", lock.schedule.type_tag())
+        .add_attribute("unlock_at", lock.schedule.first_unlock_at().seconds().to_string())
+        .add_attribute("final_unlock_at", lock.schedule.final_unlock_at().seconds().to_string()))
 }
 
 fn execute_receive(
@@ -189,7 +196,14 @@ fn execute_receive(
             Ok(Response::new()
                 .add_attribute("action", "lock")
                 .add_attribute("id", lock.id.to_string())
-                .add_attribute("amount", amount))
+                .add_attribute("amount", amount)
+                .add_attribute("owner", lock.owner.as_str())
+                .add_attribute("creator", lock.creator.as_str())
+                .add_attribute("denom", lock.denom.as_str())
+                .add_attribute("denom_kind", lock.denom.kind_str())
+                .add_attribute("schedule_type", lock.schedule.type_tag())
+                .add_attribute("unlock_at", lock.schedule.first_unlock_at().seconds().to_string())
+                .add_attribute("final_unlock_at", lock.schedule.final_unlock_at().seconds().to_string()))
         }
         Cw20HookMsg::TopUp { id } => {
             let mut lock = LOCKS.load(deps.storage, id).map_err(|_| ContractError::LockNotFound(id))?;
@@ -212,7 +226,10 @@ fn execute_receive(
             Ok(Response::new()
                 .add_attribute("action", "topup")
                 .add_attribute("id", id.to_string())
-                .add_attribute("amount", amount))
+                .add_attribute("amount", amount)
+                .add_attribute("owner", lock.owner.as_str())
+                .add_attribute("denom", lock.denom.as_str())
+                .add_attribute("denom_kind", lock.denom.kind_str()))
         }
     }
 }
@@ -297,7 +314,10 @@ fn execute_extend(
     Ok(Response::new()
         .add_attribute("action", "extend")
         .add_attribute("id", id.to_string())
-        .add_attribute("new_unlock_at", new_unlock_at.seconds().to_string()))
+        .add_attribute("new_unlock_at", new_unlock_at.seconds().to_string())
+        .add_attribute("owner", lock.owner.as_str())
+        .add_attribute("denom", lock.denom.as_str())
+        .add_attribute("denom_kind", lock.denom.kind_str()))
 }
 
 fn execute_topup_native(
@@ -329,7 +349,10 @@ fn execute_topup_native(
     Ok(Response::new()
         .add_attribute("action", "topup")
         .add_attribute("id", id.to_string())
-        .add_attribute("amount", amount))
+        .add_attribute("amount", amount)
+        .add_attribute("owner", lock.owner.as_str())
+        .add_attribute("denom", lock.denom.as_str())
+        .add_attribute("denom_kind", lock.denom.kind_str()))
 }
 
 fn execute_transfer_owner(
@@ -352,6 +375,7 @@ fn execute_transfer_owner(
     if new_owner == env.contract.address {
         return Err(ContractError::TransferToContract {});
     }
+    let old_owner = lock.owner.clone();
     LOCKS_BY_OWNER.remove(deps.storage, (&lock.owner, id));
     LOCKS_BY_OWNER.save(deps.storage, (&new_owner, id), &())?;
     lock.owner = new_owner.clone();
@@ -359,7 +383,10 @@ fn execute_transfer_owner(
     Ok(Response::new()
         .add_attribute("action", "transfer_owner")
         .add_attribute("id", id.to_string())
-        .add_attribute("new_owner", new_owner))
+        .add_attribute("new_owner", new_owner)
+        .add_attribute("old_owner", old_owner.as_str())
+        .add_attribute("denom", lock.denom.as_str())
+        .add_attribute("denom_kind", lock.denom.kind_str()))
 }
 
 fn execute_withdraw(
@@ -398,7 +425,10 @@ fn execute_withdraw(
         .add_message(transfer)
         .add_attribute("action", "withdraw")
         .add_attribute("id", id.to_string())
-        .add_attribute("amount", requested))
+        .add_attribute("amount", requested)
+        .add_attribute("owner", lock.owner.as_str())
+        .add_attribute("denom", lock.denom.as_str())
+        .add_attribute("denom_kind", lock.denom.kind_str()))
 }
 
 // ─── admin ───────────────────────────────────────────────────────────────────
