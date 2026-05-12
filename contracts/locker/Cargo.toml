@@ -1,0 +1,36 @@
+[package]
+authors = [ "Choice Exchange" ]
+edition.workspace = true
+license.workspace = true
+name              = "choice-token-locker"
+version.workspace = true
+
+exclude = [
+  "contract.wasm",
+  "hash.txt",
+]
+
+[lib]
+crate-type = [ "cdylib", "rlib" ]
+
+[features]
+library = [  ]
+
+[dependencies]
+cosmwasm-schema = { workspace = true }
+cosmwasm-std    = { workspace = true }
+cw-storage-plus = { workspace = true }
+cw-utils        = { workspace = true }
+cw2             = { workspace = true }
+schemars        = { workspace = true }
+serde           = { workspace = true }
+thiserror       = { workspace = true }
+
+[dev-dependencies]
+injective-test-tube = { workspace = true }
+serde_json          = { workspace = true }
+
+[[test]]
+name    = "integration"
+path    = "../../tests/integration.rs"
+harness = true

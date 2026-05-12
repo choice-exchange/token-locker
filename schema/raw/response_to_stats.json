@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "StatsResponse",
+  "type": "object",
+  "required": [
+    "total_locks"
+  ],
+  "properties": {
+    "total_locks": {
+      "description": "Monotonic counter of locks ever created. Lock ids run 1..=total_locks.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,15 @@
+# Rust build artifacts
+target/
+
+# Local deploy scripts (contain wallet names / keystore passwords)
+scripts/
+
+# Local env / IDE / agent state
+.env
+.claude/
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db

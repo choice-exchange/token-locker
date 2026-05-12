@@ -1,0 +1,1485 @@
+{
+  "contract_name": "choice-token-locker",
+  "contract_version": "0.1.0",
+  "idl_version": "1.0.0",
+  "instantiate": {
+    "type": "v1",
+    "root": 0,
+    "definitions": [
+      {
+        "name": "choice_token_locker_msg_InstantiateMsg",
+        "description": "Instantiate the locker.\n\n- `admin`: may update `Config`. Cannot touch any `Lock`. Defaults to msg.sender.\n- `fee_collector`: receives `creation_fee` on native locks.\n- `creation_fee`: optional flat fee (native denom only).",
+        "type": "struct",
+        "properties": {
+          "admin": {
+            "value": 2
+          },
+          "creation_fee": {
+            "value": 5
+          },
+          "fee_collector": {
+            "value": 2
+          }
+        }
+      },
+      {
+        "name": "String",
+        "type": "string"
+      },
+      {
+        "name": "core::option::Option<alloc::string::String>",
+        "type": "optional",
+        "inner": 1
+      },
+      {
+        "name": "cosmwasm_std_coin_Coin",
+        "type": "struct",
+        "properties": {
+          "amount": {
+            "value": 4
+          },
+          "denom": {
+            "value": 1
+          }
+        }
+      },
+      {
+        "name": "cosmwasm_std_math_uint256_Uint256",
+        "description": "An implementation of u256 that is using strings for JSON encoding/decoding,\nsuch that the full u256 range can be used for clients that convert JSON numbers to floats,\nlike JavaScript and jq.\n\n# Examples\n\nUse `new` to create instances out of u128, `from` for other primitive uint types\nor `from_be_bytes` to provide big endian bytes:\n\n```\n# use cosmwasm_std::Uint256;\nlet a = Uint256::new(258u128);\nlet b = Uint256::from(258u16);\nlet c = Uint256::from_be_bytes([\n0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,\n0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,\n0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,\n0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 1u8, 2u8,\n]);\nassert_eq!(a, b);\nassert_eq!(a, c);\n```",
+        "type": "integer",
+        "precision": 256,
+        "signed": false
+      },
+      {
+        "name": "core::option::Option<cosmwasm_std::coin::Coin>",
+        "type": "optional",
+        "inner": 3
+      }
+    ]
+  },
+  "execute": {
+    "type": "v1",
+    "root": 0,
+    "definitions": [
+      {
+        "name": "choice_token_locker_msg_ExecuteMsg",
+        "description": "All callable entry points. See the workspace README for the full reference.",
+        "type": "enum",
+        "cases": {
+          "extend": {
+            "description": "Move a `Cliff` lock's `unlock_at` strictly forward. Owner-only.\nRejected on `SaturatingLinear` / `PiecewiseLinear` schedules.",
+            "type": "named",
+            "properties": {
+              "id": {
+                "value": 11
+              },
+              "new_unlock_at": {
+                "value": 5
+              }
+            }
+          },
+          "lock": {
+            "description": "Create a lock funded by attached native funds. cw20 locks MUST use\nthe `Receive` hook instead — passing `UncheckedDenom::Cw20(...)` here is\nrejected.",
+            "type": "named",
+            "properties": {
+              "amount": {
+                "value": 3
+              },
+              "denom": {
+                "value": 1
+              },
+              "description": {
+                "value": 8
+              },
+              "schedule": {
+                "value": 4
+              },
+              "title": {
+                "value": 8
+              }
+            }
+          },
+          "receive": {
+            "description": "cw20 entry point. Invoked by the cw20 contract via its `Send` hook.\nThe wrapped `msg` field is a base64-encoded [`Cw20HookMsg`].",
+            "type": "tuple",
+            "items": [
+              9
+            ]
+          },
+          "top_up": {
+            "description": "Add more of the same denom to a `Cliff` lock. Native: attach matching\nfunds. cw20: use `Cw20HookMsg::TopUp` instead. Anyone may top up\n(analogous to anyone funding a public escrow).",
+            "type": "named",
+            "properties": {
+              "amount": {
+                "value": 3
+              },
+              "id": {
+                "value": 11
+              }
+            }
+          },
+          "transfer_owner": {
+            "description": "Hand ownership of a lock to another address. Owner-only.",
+            "type": "named",
+            "properties": {
+              "id": {
+                "value": 11
+              },
+              "new_owner": {
+                "value": 2
+              }
+            }
+          },
+          "update_config": {
+            "description": "Admin-only. Updates Config fields. Never touches `Lock`s.\n\n`admin`: `Some(addr)` sets a new admin, `None` leaves unchanged. Cannot be cleared.\n`fee_collector`: `Some(Some(addr))` sets, `Some(None)` clears, `None` leaves unchanged.\n`creation_fee`: `Some(Some(fee))` sets, `Some(None)` clears, `None` leaves unchanged.\n\nPost-update, the contract enforces `creation_fee.is_some() => fee_collector.is_some()`\nand `creation_fee.amount > 0` to prevent stuck fees and bricked `Lock` calls.",
+            "type": "named",
+            "properties": {
+              "admin": {
+                "value": 8
+              },
+              "creation_fee": {
+                "value": 17
+              },
+              "fee_collector": {
+                "value": 13
+              }
+            }
+          },
+          "withdraw": {
+            "description": "Claim up to the currently claimable amount. `amount: None` claims everything.\nOwner-only. Returns `StillLocked` if nothing is claimable yet.",
+            "type": "named",
+            "properties": {
+              "amount": {
+                "value": 12
+              },
+              "id": {
+                "value": 11
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "choice_token_locker_denom_UncheckedDenom",
+        "description": "Unvalidated denom supplied by the user. Validated into [`CheckedDenom`] at\nthe contract boundary. `Native(d)` covers token-factory subdenoms as well\nas base denoms like `inj`.",
+        "type": "enum",
+        "cases": {
+          "cw20": {
+            "type": "tuple",
+            "items": [
+              2
+            ]
+          },
+          "native": {
+            "type": "tuple",
+            "items": [
+              2
+            ]
+          }
+        }
+      },
+      {
+        "name": "String",
+        "type": "string"
+      },
+      {
+        "name": "cosmwasm_std_math_uint128_Uint128",
+        "description": "A thin wrapper around u128 that is using strings for JSON encoding/decoding,\nsuch that the full u128 range can be used for clients that convert JSON numbers to floats,\nlike JavaScript and jq.\n\n# Examples\n\nUse `from` to create instances of this and `u128` to get the value out:\n\n```\n# use cosmwasm_std::Uint128;\nlet a = Uint128::from(123u128);\nassert_eq!(a.u128(), 123);\n\nlet b = Uint128::from(42u64);\nassert_eq!(b.u128(), 42);\n\nlet c = Uint128::from(70u32);\nassert_eq!(c.u128(), 70);\n```",
+        "type": "integer",
+        "precision": 128,
+        "signed": false
+      },
+      {
+        "name": "choice_token_locker_schedule_Schedule",
+        "description": "How a lock becomes claimable over time.\n\n`claimable_at(t, total)` returns the cumulative amount unlocked at time `t`.\n`Withdraw` releases `claimable_at(now, total) - withdrawn`.\n\n`Cliff` is the only schedule that supports `TopUp` and `Extend`. The vesting\nvariants are immutable once created — top-up semantics on a vesting curve are\nambiguous (should the new funds back-vest, or vest going forward?), so we\ndon't try to pick.",
+        "type": "enum",
+        "cases": {
+          "cliff": {
+            "description": "All-or-nothing at `unlock_at`. Top-up and Extend allowed.",
+            "type": "named",
+            "properties": {
+              "unlock_at": {
+                "value": 5
+              }
+            }
+          },
+          "piecewise_linear": {
+            "description": "Piecewise-linear interpolation between sorted `(time, cumulative)`\nbreakpoints. The final amount must equal the lock's `total`.\nImmutable.",
+            "type": "named",
+            "properties": {
+              "steps": {
+                "value": 7
+              }
+            }
+          },
+          "saturating_linear": {
+            "description": "Linear vest from `start_at` (0%) to `end_at` (100%). Reverts before\n`start_at`; saturates at `total` after `end_at`. Immutable.",
+            "type": "named",
+            "properties": {
+              "end_at": {
+                "value": 5
+              },
+              "start_at": {
+                "value": 5
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "cosmwasm_std_timestamp_Timestamp",
+        "description": "A point in time in nanosecond precision.\n\nThis type can represent times from 1970-01-01T00:00:00Z to 2554-07-21T23:34:33Z.\n\n## Examples\n\n```\n# use cosmwasm_std::Timestamp;\nlet ts = Timestamp::from_nanos(1_000_000_202);\nassert_eq!(ts.nanos(), 1_000_000_202);\nassert_eq!(ts.seconds(), 1);\nassert_eq!(ts.subsec_nanos(), 202);\n\nlet ts = ts.plus_seconds(2);\nassert_eq!(ts.nanos(), 3_000_000_202);\nassert_eq!(ts.seconds(), 3);\nassert_eq!(ts.subsec_nanos(), 202);\n```",
+        "type": "timestamp"
+      },
+      {
+        "name": "(cosmwasm_std::timestamp::Timestamp, cosmwasm_std::math::uint128::Uint128)",
+        "type": "tuple",
+        "items": [
+          5,
+          3
+        ]
+      },
+      {
+        "name": "alloc::vec::Vec<(cosmwasm_std::timestamp::Timestamp, cosmwasm_std::math::uint128::Uint128)>",
+        "type": "array",
+        "items": 6
+      },
+      {
+        "name": "core::option::Option<alloc::string::String>",
+        "type": "optional",
+        "inner": 2
+      },
+      {
+        "name": "choice_token_locker_cw20_Cw20ReceiveMsg",
+        "type": "struct",
+        "properties": {
+          "amount": {
+            "value": 3
+          },
+          "msg": {
+            "value": 10
+          },
+          "sender": {
+            "value": 2
+          }
+        }
+      },
+      {
+        "name": "cosmwasm_std_binary_Binary",
+        "description": "Binary is a wrapper around Vec<u8> to add base64 de/serialization\nwith serde. It also adds some helper methods to help encode inline.\n\nThis is only needed as serde-json-{core,wasm} has a horrible encoding for Vec<u8>.\nSee also <https://github.com/CosmWasm/cosmwasm/blob/main/docs/MESSAGE_TYPES.md>.",
+        "type": "binary"
+      },
+      {
+        "name": "u64",
+        "type": "integer",
+        "precision": 64,
+        "signed": false
+      },
+      {
+        "name": "core::option::Option<cosmwasm_std::math::uint128::Uint128>",
+        "type": "optional",
+        "inner": 3
+      },
+      {
+        "name": "core::option::Option<core::option::Option<alloc::string::String>>",
+        "type": "optional",
+        "inner": 8
+      },
+      {
+        "name": "cosmwasm_std_coin_Coin",
+        "type": "struct",
+        "properties": {
+          "amount": {
+            "value": 15
+          },
+          "denom": {
+            "value": 2
+          }
+        }
+      },
+      {
+        "name": "cosmwasm_std_math_uint256_Uint256",
+        "description": "An implementation of u256 that is using strings for JSON encoding/decoding,\nsuch that the full u256 range can be used for clients that convert JSON numbers to floats,\nlike JavaScript and jq.\n\n# Examples\n\nUse `new` to create instances out of u128, `from` for other primitive uint types\nor `from_be_bytes` to provide big endian bytes:\n\n```\n# use cosmwasm_std::Uint256;\nlet a = Uint256::new(258u128);\nlet b = Uint256::from(258u16);\nlet c = Uint256::from_be_bytes([\n0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,\n0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,\n0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,\n0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 1u8, 2u8,\n]);\nassert_eq!(a, b);\nassert_eq!(a, c);\n```",
+        "type": "integer",
+        "precision": 256,
+        "signed": false
+      },
+      {
+        "name": "core::option::Option<cosmwasm_std::coin::Coin>",
+        "type": "optional",
+        "inner": 14
+      },
+      {
+        "name": "core::option::Option<core::option::Option<cosmwasm_std::coin::Coin>>",
+        "type": "optional",
+        "inner": 16
+      }
+    ]
+  },
+  "query": {
+    "type": "v1",
+    "root": 0,
+    "definitions": [
+      {
+        "name": "choice_token_locker_msg_QueryMsg",
+        "type": "enum",
+        "cases": {
+          "all_locks": {
+            "type": "named",
+            "properties": {
+              "limit": {
+                "value": 5
+              },
+              "order": {
+                "value": 7
+              },
+              "start_after": {
+                "value": 3
+              }
+            }
+          },
+          "claimable": {
+            "description": "Current claimable amount for a lock at the given time (defaults to block time).",
+            "type": "named",
+            "properties": {
+              "at": {
+                "value": 9
+              },
+              "id": {
+                "value": 1
+              }
+            }
+          },
+          "claimable_many": {
+            "description": "Batched claimable lookup, capped at 100 ids per call. Unknown ids return\n`entry.response = None` rather than failing the whole query.",
+            "type": "named",
+            "properties": {
+              "at": {
+                "value": 9
+              },
+              "ids": {
+                "value": 10
+              }
+            }
+          },
+          "config": {
+            "type": "named",
+            "properties": {}
+          },
+          "lock": {
+            "type": "named",
+            "properties": {
+              "id": {
+                "value": 1
+              }
+            }
+          },
+          "locks_by_creator": {
+            "description": "\"Locks I created\" — survives `TransferOwner` so an OTC seller can still\naudit their issued locks after handing ownership to the buyer.",
+            "type": "named",
+            "properties": {
+              "creator": {
+                "value": 2
+              },
+              "limit": {
+                "value": 5
+              },
+              "order": {
+                "value": 7
+              },
+              "start_after": {
+                "value": 3
+              }
+            }
+          },
+          "locks_by_denom": {
+            "type": "named",
+            "properties": {
+              "denom": {
+                "value": 2
+              },
+              "limit": {
+                "value": 5
+              },
+              "order": {
+                "value": 7
+              },
+              "start_after": {
+                "value": 3
+              }
+            }
+          },
+          "locks_by_owner": {
+            "type": "named",
+            "properties": {
+              "limit": {
+                "value": 5
+              },
+              "order": {
+                "value": 7
+              },
+              "owner": {
+                "value": 2
+              },
+              "start_after": {
+                "value": 3
+              }
+            }
+          },
+          "stats": {
+            "description": "Aggregate counters. `total_locks` is the monotonic nonce — useful for\n\"X locks created\" UI and as a paging upper bound.",
+            "type": "named",
+            "properties": {}
+          }
+        }
+      },
+      {
+        "name": "u64",
+        "type": "integer",
+        "precision": 64,
+        "signed": false
+      },
+      {
+        "name": "String",
+        "type": "string"
+      },
+      {
+        "name": "core::option::Option<u64>",
+        "type": "optional",
+        "inner": 1
+      },
+      {
+        "name": "u32",
+        "type": "integer",
+        "precision": 32,
+        "signed": false
+      },
+      {
+        "name": "core::option::Option<u32>",
+        "type": "optional",
+        "inner": 4
+      },
+      {
+        "name": "choice_token_locker_msg_SortOrder",
+        "description": "Sort order for paginated queries.\n\n`start_after` is always exclusive on the inner lock-id. With `Desc`, the\nfrontend should track the **smallest** id seen on a page to fetch the next\npage (vs the largest for `Asc`).",
+        "type": "enum",
+        "cases": {
+          "asc": {
+            "type": "unit"
+          },
+          "desc": {
+            "type": "unit"
+          }
+        }
+      },
+      {
+        "name": "core::option::Option<choice_token_locker::msg::SortOrder>",
+        "type": "optional",
+        "inner": 6
+      },
+      {
+        "name": "cosmwasm_std_timestamp_Timestamp",
+        "description": "A point in time in nanosecond precision.\n\nThis type can represent times from 1970-01-01T00:00:00Z to 2554-07-21T23:34:33Z.\n\n## Examples\n\n```\n# use cosmwasm_std::Timestamp;\nlet ts = Timestamp::from_nanos(1_000_000_202);\nassert_eq!(ts.nanos(), 1_000_000_202);\nassert_eq!(ts.seconds(), 1);\nassert_eq!(ts.subsec_nanos(), 202);\n\nlet ts = ts.plus_seconds(2);\nassert_eq!(ts.nanos(), 3_000_000_202);\nassert_eq!(ts.seconds(), 3);\nassert_eq!(ts.subsec_nanos(), 202);\n```",
+        "type": "timestamp"
+      },
+      {
+        "name": "core::option::Option<cosmwasm_std::timestamp::Timestamp>",
+        "type": "optional",
+        "inner": 8
+      },
+      {
+        "name": "alloc::vec::Vec<u64>",
+        "type": "array",
+        "items": 1
+      }
+    ]
+  },
+  "migrate": {
+    "type": "v1",
+    "root": 0,
+    "definitions": [
+      {
+        "name": "choice_token_locker_msg_MigrateMsg",
+        "type": "struct",
+        "properties": {}
+      }
+    ]
+  },
+  "sudo": null,
+  "responses": {
+    "all_locks": {
+      "type": "v1",
+      "root": 0,
+      "definitions": [
+        {
+          "name": "choice_token_locker_msg_LocksResponse",
+          "type": "struct",
+          "properties": {
+            "locks": {
+              "value": 12
+            }
+          }
+        },
+        {
+          "name": "choice_token_locker_state_Lock",
+          "description": "A single locked position.\n\n- `total` grows on `TopUp` (cliff-only), never shrinks.\n- `withdrawn` grows on `Withdraw`, never shrinks.\n- Claimable at time `t` = `schedule.claimable_at(t, total) - withdrawn`.",
+          "type": "struct",
+          "properties": {
+            "created_at": {
+              "value": 8
+            },
+            "creator": {
+              "description": "Original depositor. Immutable; for provenance only.",
+              "value": 3
+            },
+            "denom": {
+              "value": 4
+            },
+            "description": {
+              "value": 11
+            },
+            "id": {
+              "value": 2
+            },
+            "owner": {
+              "description": "Current owner. Can `Withdraw`, `Extend`, `TopUp`, `TransferOwner`.",
+              "value": 3
+            },
+            "schedule": {
+              "value": 7
+            },
+            "title": {
+              "value": 11
+            },
+            "total": {
+              "value": 6
+            },
+            "withdrawn": {
+              "value": 6
+            }
+          }
+        },
+        {
+          "name": "u64",
+          "type": "integer",
+          "precision": 64,
+          "signed": false
+        },
+        {
+          "name": "cosmwasm_std_addresses_Addr",
+          "description": "A human readable address.\n\nIn Cosmos, this is typically bech32 encoded. But for multi-chain smart contracts no\nassumptions should be made other than being UTF-8 encoded and of reasonable length.\n\nThis type represents a validated address. It can be created in the following ways\n1. Use `Addr::unchecked(input)`\n2. Use `let checked: Addr = deps.api.addr_validate(input)?`\n3. Use `let checked: Addr = deps.api.addr_humanize(canonical_addr)?`\n4. Deserialize from JSON. This must only be done from JSON that was validated before\nsuch as a contract's state. `Addr` must not be used in messages sent by the user\nbecause this would result in unvalidated instances.\n\nThis type is immutable. If you really need to mutate it (Really? Are you sure?), create\na mutable copy using `let mut mutable = Addr::to_string()` and operate on that `String`\ninstance.",
+          "type": "address"
+        },
+        {
+          "name": "choice_token_locker_denom_CheckedDenom",
+          "description": "Stored, validated denom. Use [`key`](Self::key) for stable map indexing\n(`native:<d>` / `cw20:<addr>`) and [`transfer_msg`](Self::transfer_msg)\nto construct the outbound transfer for `Withdraw`.",
+          "type": "enum",
+          "cases": {
+            "cw20": {
+              "type": "tuple",
+              "items": [
+                3
+              ]
+            },
+            "native": {
+              "type": "tuple",
+              "items": [
+                5
+              ]
+            }
+          }
+        },
+        {
+          "name": "String",
+          "type": "string"
+        },
+        {
+          "name": "cosmwasm_std_math_uint128_Uint128",
+          "description": "A thin wrapper around u128 that is using strings for JSON encoding/decoding,\nsuch that the full u128 range can be used for clients that convert JSON numbers to floats,\nlike JavaScript and jq.\n\n# Examples\n\nUse `from` to create instances of this and `u128` to get the value out:\n\n```\n# use cosmwasm_std::Uint128;\nlet a = Uint128::from(123u128);\nassert_eq!(a.u128(), 123);\n\nlet b = Uint128::from(42u64);\nassert_eq!(b.u128(), 42);\n\nlet c = Uint128::from(70u32);\nassert_eq!(c.u128(), 70);\n```",
+          "type": "integer",
+          "precision": 128,
+          "signed": false
+        },
+        {
+          "name": "choice_token_locker_schedule_Schedule",
+          "description": "How a lock becomes claimable over time.\n\n`claimable_at(t, total)` returns the cumulative amount unlocked at time `t`.\n`Withdraw` releases `claimable_at(now, total) - withdrawn`.\n\n`Cliff` is the only schedule that supports `TopUp` and `Extend`. The vesting\nvariants are immutable once created — top-up semantics on a vesting curve are\nambiguous (should the new funds back-vest, or vest going forward?), so we\ndon't try to pick.",
+          "type": "enum",
+          "cases": {
+            "cliff": {
+              "description": "All-or-nothing at `unlock_at`. Top-up and Extend allowed.",
+              "type": "named",
+              "properties": {
+                "unlock_at": {
+                  "value": 8
+                }
+              }
+            },
+            "piecewise_linear": {
+              "description": "Piecewise-linear interpolation between sorted `(time, cumulative)`\nbreakpoints. The final amount must equal the lock's `total`.\nImmutable.",
+              "type": "named",
+              "properties": {
+                "steps": {
+                  "value": 10
+                }
+              }
+            },
+            "saturating_linear": {
+              "description": "Linear vest from `start_at` (0%) to `end_at` (100%). Reverts before\n`start_at`; saturates at `total` after `end_at`. Immutable.",
+              "type": "named",
+              "properties": {
+                "end_at": {
+                  "value": 8
+                },
+                "start_at": {
+                  "value": 8
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "cosmwasm_std_timestamp_Timestamp",
+          "description": "A point in time in nanosecond precision.\n\nThis type can represent times from 1970-01-01T00:00:00Z to 2554-07-21T23:34:33Z.\n\n## Examples\n\n```\n# use cosmwasm_std::Timestamp;\nlet ts = Timestamp::from_nanos(1_000_000_202);\nassert_eq!(ts.nanos(), 1_000_000_202);\nassert_eq!(ts.seconds(), 1);\nassert_eq!(ts.subsec_nanos(), 202);\n\nlet ts = ts.plus_seconds(2);\nassert_eq!(ts.nanos(), 3_000_000_202);\nassert_eq!(ts.seconds(), 3);\nassert_eq!(ts.subsec_nanos(), 202);\n```",
+          "type": "timestamp"
+        },
+        {
+          "name": "(cosmwasm_std::timestamp::Timestamp, cosmwasm_std::math::uint128::Uint128)",
+          "type": "tuple",
+          "items": [
+            8,
+            6
+          ]
+        },
+        {
+          "name": "alloc::vec::Vec<(cosmwasm_std::timestamp::Timestamp, cosmwasm_std::math::uint128::Uint128)>",
+          "type": "array",
+          "items": 9
+        },
+        {
+          "name": "core::option::Option<alloc::string::String>",
+          "type": "optional",
+          "inner": 5
+        },
+        {
+          "name": "alloc::vec::Vec<choice_token_locker::state::Lock>",
+          "type": "array",
+          "items": 1
+        }
+      ]
+    },
+    "claimable": {
+      "type": "v1",
+      "root": 0,
+      "definitions": [
+        {
+          "name": "choice_token_locker_msg_ClaimableResponse",
+          "type": "struct",
+          "properties": {
+            "claimable": {
+              "value": 1
+            },
+            "remaining": {
+              "value": 1
+            },
+            "withdrawn": {
+              "value": 1
+            }
+          }
+        },
+        {
+          "name": "cosmwasm_std_math_uint128_Uint128",
+          "description": "A thin wrapper around u128 that is using strings for JSON encoding/decoding,\nsuch that the full u128 range can be used for clients that convert JSON numbers to floats,\nlike JavaScript and jq.\n\n# Examples\n\nUse `from` to create instances of this and `u128` to get the value out:\n\n```\n# use cosmwasm_std::Uint128;\nlet a = Uint128::from(123u128);\nassert_eq!(a.u128(), 123);\n\nlet b = Uint128::from(42u64);\nassert_eq!(b.u128(), 42);\n\nlet c = Uint128::from(70u32);\nassert_eq!(c.u128(), 70);\n```",
+          "type": "integer",
+          "precision": 128,
+          "signed": false
+        }
+      ]
+    },
+    "claimable_many": {
+      "type": "v1",
+      "root": 0,
+      "definitions": [
+        {
+          "name": "choice_token_locker_msg_ClaimableManyResponse",
+          "type": "struct",
+          "properties": {
+            "entries": {
+              "value": 6
+            }
+          }
+        },
+        {
+          "name": "choice_token_locker_msg_ClaimableManyEntry",
+          "type": "struct",
+          "properties": {
+            "id": {
+              "value": 2
+            },
+            "response": {
+              "description": "`None` if the lock id does not exist.",
+              "value": 5
+            }
+          }
+        },
+        {
+          "name": "u64",
+          "type": "integer",
+          "precision": 64,
+          "signed": false
+        },
+        {
+          "name": "choice_token_locker_msg_ClaimableResponse",
+          "type": "struct",
+          "properties": {
+            "claimable": {
+              "value": 4
+            },
+            "remaining": {
+              "value": 4
+            },
+            "withdrawn": {
+              "value": 4
+            }
+          }
+        },
+        {
+          "name": "cosmwasm_std_math_uint128_Uint128",
+          "description": "A thin wrapper around u128 that is using strings for JSON encoding/decoding,\nsuch that the full u128 range can be used for clients that convert JSON numbers to floats,\nlike JavaScript and jq.\n\n# Examples\n\nUse `from` to create instances of this and `u128` to get the value out:\n\n```\n# use cosmwasm_std::Uint128;\nlet a = Uint128::from(123u128);\nassert_eq!(a.u128(), 123);\n\nlet b = Uint128::from(42u64);\nassert_eq!(b.u128(), 42);\n\nlet c = Uint128::from(70u32);\nassert_eq!(c.u128(), 70);\n```",
+          "type": "integer",
+          "precision": 128,
+          "signed": false
+        },
+        {
+          "name": "core::option::Option<choice_token_locker::msg::ClaimableResponse>",
+          "type": "optional",
+          "inner": 3
+        },
+        {
+          "name": "alloc::vec::Vec<choice_token_locker::msg::ClaimableManyEntry>",
+          "type": "array",
+          "items": 1
+        }
+      ]
+    },
+    "config": {
+      "type": "v1",
+      "root": 0,
+      "definitions": [
+        {
+          "name": "choice_token_locker_state_Config",
+          "description": "Global contract configuration. Only `admin` can mutate this; nothing here\naffects any existing `Lock`.",
+          "type": "struct",
+          "properties": {
+            "admin": {
+              "description": "Address allowed to call `UpdateConfig`. No power over individual locks.",
+              "value": 2
+            },
+            "creation_fee": {
+              "description": "Flat per-lock fee (native denom only). If `None`, no fee is charged.\nOnly applies to `ExecuteMsg::Lock`, not the cw20 `Receive` path.",
+              "value": 6
+            },
+            "fee_collector": {
+              "description": "Recipient of `creation_fee` payments. If unset, fees accrue to the contract.",
+              "value": 2
+            }
+          }
+        },
+        {
+          "name": "cosmwasm_std_addresses_Addr",
+          "description": "A human readable address.\n\nIn Cosmos, this is typically bech32 encoded. But for multi-chain smart contracts no\nassumptions should be made other than being UTF-8 encoded and of reasonable length.\n\nThis type represents a validated address. It can be created in the following ways\n1. Use `Addr::unchecked(input)`\n2. Use `let checked: Addr = deps.api.addr_validate(input)?`\n3. Use `let checked: Addr = deps.api.addr_humanize(canonical_addr)?`\n4. Deserialize from JSON. This must only be done from JSON that was validated before\nsuch as a contract's state. `Addr` must not be used in messages sent by the user\nbecause this would result in unvalidated instances.\n\nThis type is immutable. If you really need to mutate it (Really? Are you sure?), create\na mutable copy using `let mut mutable = Addr::to_string()` and operate on that `String`\ninstance.",
+          "type": "address"
+        },
+        {
+          "name": "core::option::Option<cosmwasm_std::addresses::Addr>",
+          "type": "optional",
+          "inner": 1
+        },
+        {
+          "name": "cosmwasm_std_coin_Coin",
+          "type": "struct",
+          "properties": {
+            "amount": {
+              "value": 5
+            },
+            "denom": {
+              "value": 4
+            }
+          }
+        },
+        {
+          "name": "String",
+          "type": "string"
+        },
+        {
+          "name": "cosmwasm_std_math_uint256_Uint256",
+          "description": "An implementation of u256 that is using strings for JSON encoding/decoding,\nsuch that the full u256 range can be used for clients that convert JSON numbers to floats,\nlike JavaScript and jq.\n\n# Examples\n\nUse `new` to create instances out of u128, `from` for other primitive uint types\nor `from_be_bytes` to provide big endian bytes:\n\n```\n# use cosmwasm_std::Uint256;\nlet a = Uint256::new(258u128);\nlet b = Uint256::from(258u16);\nlet c = Uint256::from_be_bytes([\n0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,\n0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,\n0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8,\n0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 1u8, 2u8,\n]);\nassert_eq!(a, b);\nassert_eq!(a, c);\n```",
+          "type": "integer",
+          "precision": 256,
+          "signed": false
+        },
+        {
+          "name": "core::option::Option<cosmwasm_std::coin::Coin>",
+          "type": "optional",
+          "inner": 3
+        }
+      ]
+    },
+    "lock": {
+      "type": "v1",
+      "root": 0,
+      "definitions": [
+        {
+          "name": "choice_token_locker_msg_LockResponse",
+          "type": "struct",
+          "properties": {
+            "lock": {
+              "value": 1
+            }
+          }
+        },
+        {
+          "name": "choice_token_locker_state_Lock",
+          "description": "A single locked position.\n\n- `total` grows on `TopUp` (cliff-only), never shrinks.\n- `withdrawn` grows on `Withdraw`, never shrinks.\n- Claimable at time `t` = `schedule.claimable_at(t, total) - withdrawn`.",
+          "type": "struct",
+          "properties": {
+            "created_at": {
+              "value": 8
+            },
+            "creator": {
+              "description": "Original depositor. Immutable; for provenance only.",
+              "value": 3
+            },
+            "denom": {
+              "value": 4
+            },
+            "description": {
+              "value": 11
+            },
+            "id": {
+              "value": 2
+            },
+            "owner": {
+              "description": "Current owner. Can `Withdraw`, `Extend`, `TopUp`, `TransferOwner`.",
+              "value": 3
+            },
+            "schedule": {
+              "value": 7
+            },
+            "title": {
+              "value": 11
+            },
+            "total": {
+              "value": 6
+            },
+            "withdrawn": {
+              "value": 6
+            }
+          }
+        },
+        {
+          "name": "u64",
+          "type": "integer",
+          "precision": 64,
+          "signed": false
+        },
+        {
+          "name": "cosmwasm_std_addresses_Addr",
+          "description": "A human readable address.\n\nIn Cosmos, this is typically bech32 encoded. But for multi-chain smart contracts no\nassumptions should be made other than being UTF-8 encoded and of reasonable length.\n\nThis type represents a validated address. It can be created in the following ways\n1. Use `Addr::unchecked(input)`\n2. Use `let checked: Addr = deps.api.addr_validate(input)?`\n3. Use `let checked: Addr = deps.api.addr_humanize(canonical_addr)?`\n4. Deserialize from JSON. This must only be done from JSON that was validated before\nsuch as a contract's state. `Addr` must not be used in messages sent by the user\nbecause this would result in unvalidated instances.\n\nThis type is immutable. If you really need to mutate it (Really? Are you sure?), create\na mutable copy using `let mut mutable = Addr::to_string()` and operate on that `String`\ninstance.",
+          "type": "address"
+        },
+        {
+          "name": "choice_token_locker_denom_CheckedDenom",
+          "description": "Stored, validated denom. Use [`key`](Self::key) for stable map indexing\n(`native:<d>` / `cw20:<addr>`) and [`transfer_msg`](Self::transfer_msg)\nto construct the outbound transfer for `Withdraw`.",
+          "type": "enum",
+          "cases": {
+            "cw20": {
+              "type": "tuple",
+              "items": [
+                3
+              ]
+            },
+            "native": {
+              "type": "tuple",
+              "items": [
+                5
+              ]
+            }
+          }
+        },
+        {
+          "name": "String",
+          "type": "string"
+        },
+        {
+          "name": "cosmwasm_std_math_uint128_Uint128",
+          "description": "A thin wrapper around u128 that is using strings for JSON encoding/decoding,\nsuch that the full u128 range can be used for clients that convert JSON numbers to floats,\nlike JavaScript and jq.\n\n# Examples\n\nUse `from` to create instances of this and `u128` to get the value out:\n\n```\n# use cosmwasm_std::Uint128;\nlet a = Uint128::from(123u128);\nassert_eq!(a.u128(), 123);\n\nlet b = Uint128::from(42u64);\nassert_eq!(b.u128(), 42);\n\nlet c = Uint128::from(70u32);\nassert_eq!(c.u128(), 70);\n```",
+          "type": "integer",
+          "precision": 128,
+          "signed": false
+        },
+        {
+          "name": "choice_token_locker_schedule_Schedule",
+          "description": "How a lock becomes claimable over time.\n\n`claimable_at(t, total)` returns the cumulative amount unlocked at time `t`.\n`Withdraw` releases `claimable_at(now, total) - withdrawn`.\n\n`Cliff` is the only schedule that supports `TopUp` and `Extend`. The vesting\nvariants are immutable once created — top-up semantics on a vesting curve are\nambiguous (should the new funds back-vest, or vest going forward?), so we\ndon't try to pick.",
+          "type": "enum",
+          "cases": {
+            "cliff": {
+              "description": "All-or-nothing at `unlock_at`. Top-up and Extend allowed.",
+              "type": "named",
+              "properties": {
+                "unlock_at": {
+                  "value": 8
+                }
+              }
+            },
+            "piecewise_linear": {
+              "description": "Piecewise-linear interpolation between sorted `(time, cumulative)`\nbreakpoints. The final amount must equal the lock's `total`.\nImmutable.",
+              "type": "named",
+              "properties": {
+                "steps": {
+                  "value": 10
+                }
+              }
+            },
+            "saturating_linear": {
+              "description": "Linear vest from `start_at` (0%) to `end_at` (100%). Reverts before\n`start_at`; saturates at `total` after `end_at`. Immutable.",
+              "type": "named",
+              "properties": {
+                "end_at": {
+                  "value": 8
+                },
+                "start_at": {
+                  "value": 8
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "cosmwasm_std_timestamp_Timestamp",
+          "description": "A point in time in nanosecond precision.\n\nThis type can represent times from 1970-01-01T00:00:00Z to 2554-07-21T23:34:33Z.\n\n## Examples\n\n```\n# use cosmwasm_std::Timestamp;\nlet ts = Timestamp::from_nanos(1_000_000_202);\nassert_eq!(ts.nanos(), 1_000_000_202);\nassert_eq!(ts.seconds(), 1);\nassert_eq!(ts.subsec_nanos(), 202);\n\nlet ts = ts.plus_seconds(2);\nassert_eq!(ts.nanos(), 3_000_000_202);\nassert_eq!(ts.seconds(), 3);\nassert_eq!(ts.subsec_nanos(), 202);\n```",
+          "type": "timestamp"
+        },
+        {
+          "name": "(cosmwasm_std::timestamp::Timestamp, cosmwasm_std::math::uint128::Uint128)",
+          "type": "tuple",
+          "items": [
+            8,
+            6
+          ]
+        },
+        {
+          "name": "alloc::vec::Vec<(cosmwasm_std::timestamp::Timestamp, cosmwasm_std::math::uint128::Uint128)>",
+          "type": "array",
+          "items": 9
+        },
+        {
+          "name": "core::option::Option<alloc::string::String>",
+          "type": "optional",
+          "inner": 5
+        }
+      ]
+    },
+    "locks_by_creator": {
+      "type": "v1",
+      "root": 0,
+      "definitions": [
+        {
+          "name": "choice_token_locker_msg_LocksResponse",
+          "type": "struct",
+          "properties": {
+            "locks": {
+              "value": 12
+            }
+          }
+        },
+        {
+          "name": "choice_token_locker_state_Lock",
+          "description": "A single locked position.\n\n- `total` grows on `TopUp` (cliff-only), never shrinks.\n- `withdrawn` grows on `Withdraw`, never shrinks.\n- Claimable at time `t` = `schedule.claimable_at(t, total) - withdrawn`.",
+          "type": "struct",
+          "properties": {
+            "created_at": {
+              "value": 8
+            },
+            "creator": {
+              "description": "Original depositor. Immutable; for provenance only.",
+              "value": 3
+            },
+            "denom": {
+              "value": 4
+            },
+            "description": {
+              "value": 11
+            },
+            "id": {
+              "value": 2
+            },
+            "owner": {
+              "description": "Current owner. Can `Withdraw`, `Extend`, `TopUp`, `TransferOwner`.",
+              "value": 3
+            },
+            "schedule": {
+              "value": 7
+            },
+            "title": {
+              "value": 11
+            },
+            "total": {
+              "value": 6
+            },
+            "withdrawn": {
+              "value": 6
+            }
+          }
+        },
+        {
+          "name": "u64",
+          "type": "integer",
+          "precision": 64,
+          "signed": false
+        },
+        {
+          "name": "cosmwasm_std_addresses_Addr",
+          "description": "A human readable address.\n\nIn Cosmos, this is typically bech32 encoded. But for multi-chain smart contracts no\nassumptions should be made other than being UTF-8 encoded and of reasonable length.\n\nThis type represents a validated address. It can be created in the following ways\n1. Use `Addr::unchecked(input)`\n2. Use `let checked: Addr = deps.api.addr_validate(input)?`\n3. Use `let checked: Addr = deps.api.addr_humanize(canonical_addr)?`\n4. Deserialize from JSON. This must only be done from JSON that was validated before\nsuch as a contract's state. `Addr` must not be used in messages sent by the user\nbecause this would result in unvalidated instances.\n\nThis type is immutable. If you really need to mutate it (Really? Are you sure?), create\na mutable copy using `let mut mutable = Addr::to_string()` and operate on that `String`\ninstance.",
+          "type": "address"
+        },
+        {
+          "name": "choice_token_locker_denom_CheckedDenom",
+          "description": "Stored, validated denom. Use [`key`](Self::key) for stable map indexing\n(`native:<d>` / `cw20:<addr>`) and [`transfer_msg`](Self::transfer_msg)\nto construct the outbound transfer for `Withdraw`.",
+          "type": "enum",
+          "cases": {
+            "cw20": {
+              "type": "tuple",
+              "items": [
+                3
+              ]
+            },
+            "native": {
+              "type": "tuple",
+              "items": [
+                5
+              ]
+            }
+          }
+        },
+        {
+          "name": "String",
+          "type": "string"
+        },
+        {
+          "name": "cosmwasm_std_math_uint128_Uint128",
+          "description": "A thin wrapper around u128 that is using strings for JSON encoding/decoding,\nsuch that the full u128 range can be used for clients that convert JSON numbers to floats,\nlike JavaScript and jq.\n\n# Examples\n\nUse `from` to create instances of this and `u128` to get the value out:\n\n```\n# use cosmwasm_std::Uint128;\nlet a = Uint128::from(123u128);\nassert_eq!(a.u128(), 123);\n\nlet b = Uint128::from(42u64);\nassert_eq!(b.u128(), 42);\n\nlet c = Uint128::from(70u32);\nassert_eq!(c.u128(), 70);\n```",
+          "type": "integer",
+          "precision": 128,
+          "signed": false
+        },
+        {
+          "name": "choice_token_locker_schedule_Schedule",
+          "description": "How a lock becomes claimable over time.\n\n`claimable_at(t, total)` returns the cumulative amount unlocked at time `t`.\n`Withdraw` releases `claimable_at(now, total) - withdrawn`.\n\n`Cliff` is the only schedule that supports `TopUp` and `Extend`. The vesting\nvariants are immutable once created — top-up semantics on a vesting curve are\nambiguous (should the new funds back-vest, or vest going forward?), so we\ndon't try to pick.",
+          "type": "enum",
+          "cases": {
+            "cliff": {
+              "description": "All-or-nothing at `unlock_at`. Top-up and Extend allowed.",
+              "type": "named",
+              "properties": {
+                "unlock_at": {
+                  "value": 8
+                }
+              }
+            },
+            "piecewise_linear": {
+              "description": "Piecewise-linear interpolation between sorted `(time, cumulative)`\nbreakpoints. The final amount must equal the lock's `total`.\nImmutable.",
+              "type": "named",
+              "properties": {
+                "steps": {
+                  "value": 10
+                }
+              }
+            },
+            "saturating_linear": {
+              "description": "Linear vest from `start_at` (0%) to `end_at` (100%). Reverts before\n`start_at`; saturates at `total` after `end_at`. Immutable.",
+              "type": "named",
+              "properties": {
+                "end_at": {
+                  "value": 8
+                },
+                "start_at": {
+                  "value": 8
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "cosmwasm_std_timestamp_Timestamp",
+          "description": "A point in time in nanosecond precision.\n\nThis type can represent times from 1970-01-01T00:00:00Z to 2554-07-21T23:34:33Z.\n\n## Examples\n\n```\n# use cosmwasm_std::Timestamp;\nlet ts = Timestamp::from_nanos(1_000_000_202);\nassert_eq!(ts.nanos(), 1_000_000_202);\nassert_eq!(ts.seconds(), 1);\nassert_eq!(ts.subsec_nanos(), 202);\n\nlet ts = ts.plus_seconds(2);\nassert_eq!(ts.nanos(), 3_000_000_202);\nassert_eq!(ts.seconds(), 3);\nassert_eq!(ts.subsec_nanos(), 202);\n```",
+          "type": "timestamp"
+        },
+        {
+          "name": "(cosmwasm_std::timestamp::Timestamp, cosmwasm_std::math::uint128::Uint128)",
+          "type": "tuple",
+          "items": [
+            8,
+            6
+          ]
+        },
+        {
+          "name": "alloc::vec::Vec<(cosmwasm_std::timestamp::Timestamp, cosmwasm_std::math::uint128::Uint128)>",
+          "type": "array",
+          "items": 9
+        },
+        {
+          "name": "core::option::Option<alloc::string::String>",
+          "type": "optional",
+          "inner": 5
+        },
+        {
+          "name": "alloc::vec::Vec<choice_token_locker::state::Lock>",
+          "type": "array",
+          "items": 1
+        }
+      ]
+    },
+    "locks_by_denom": {
+      "type": "v1",
+      "root": 0,
+      "definitions": [
+        {
+          "name": "choice_token_locker_msg_LocksResponse",
+          "type": "struct",
+          "properties": {
+            "locks": {
+              "value": 12
+            }
+          }
+        },
+        {
+          "name": "choice_token_locker_state_Lock",
+          "description": "A single locked position.\n\n- `total` grows on `TopUp` (cliff-only), never shrinks.\n- `withdrawn` grows on `Withdraw`, never shrinks.\n- Claimable at time `t` = `schedule.claimable_at(t, total) - withdrawn`.",
+          "type": "struct",
+          "properties": {
+            "created_at": {
+              "value": 8
+            },
+            "creator": {
+              "description": "Original depositor. Immutable; for provenance only.",
+              "value": 3
+            },
+            "denom": {
+              "value": 4
+            },
+            "description": {
+              "value": 11
+            },
+            "id": {
+              "value": 2
+            },
+            "owner": {
+              "description": "Current owner. Can `Withdraw`, `Extend`, `TopUp`, `TransferOwner`.",
+              "value": 3
+            },
+            "schedule": {
+              "value": 7
+            },
+            "title": {
+              "value": 11
+            },
+            "total": {
+              "value": 6
+            },
+            "withdrawn": {
+              "value": 6
+            }
+          }
+        },
+        {
+          "name": "u64",
+          "type": "integer",
+          "precision": 64,
+          "signed": false
+        },
+        {
+          "name": "cosmwasm_std_addresses_Addr",
+          "description": "A human readable address.\n\nIn Cosmos, this is typically bech32 encoded. But for multi-chain smart contracts no\nassumptions should be made other than being UTF-8 encoded and of reasonable length.\n\nThis type represents a validated address. It can be created in the following ways\n1. Use `Addr::unchecked(input)`\n2. Use `let checked: Addr = deps.api.addr_validate(input)?`\n3. Use `let checked: Addr = deps.api.addr_humanize(canonical_addr)?`\n4. Deserialize from JSON. This must only be done from JSON that was validated before\nsuch as a contract's state. `Addr` must not be used in messages sent by the user\nbecause this would result in unvalidated instances.\n\nThis type is immutable. If you really need to mutate it (Really? Are you sure?), create\na mutable copy using `let mut mutable = Addr::to_string()` and operate on that `String`\ninstance.",
+          "type": "address"
+        },
+        {
+          "name": "choice_token_locker_denom_CheckedDenom",
+          "description": "Stored, validated denom. Use [`key`](Self::key) for stable map indexing\n(`native:<d>` / `cw20:<addr>`) and [`transfer_msg`](Self::transfer_msg)\nto construct the outbound transfer for `Withdraw`.",
+          "type": "enum",
+          "cases": {
+            "cw20": {
+              "type": "tuple",
+              "items": [
+                3
+              ]
+            },
+            "native": {
+              "type": "tuple",
+              "items": [
+                5
+              ]
+            }
+          }
+        },
+        {
+          "name": "String",
+          "type": "string"
+        },
+        {
+          "name": "cosmwasm_std_math_uint128_Uint128",
+          "description": "A thin wrapper around u128 that is using strings for JSON encoding/decoding,\nsuch that the full u128 range can be used for clients that convert JSON numbers to floats,\nlike JavaScript and jq.\n\n# Examples\n\nUse `from` to create instances of this and `u128` to get the value out:\n\n```\n# use cosmwasm_std::Uint128;\nlet a = Uint128::from(123u128);\nassert_eq!(a.u128(), 123);\n\nlet b = Uint128::from(42u64);\nassert_eq!(b.u128(), 42);\n\nlet c = Uint128::from(70u32);\nassert_eq!(c.u128(), 70);\n```",
+          "type": "integer",
+          "precision": 128,
+          "signed": false
+        },
+        {
+          "name": "choice_token_locker_schedule_Schedule",
+          "description": "How a lock becomes claimable over time.\n\n`claimable_at(t, total)` returns the cumulative amount unlocked at time `t`.\n`Withdraw` releases `claimable_at(now, total) - withdrawn`.\n\n`Cliff` is the only schedule that supports `TopUp` and `Extend`. The vesting\nvariants are immutable once created — top-up semantics on a vesting curve are\nambiguous (should the new funds back-vest, or vest going forward?), so we\ndon't try to pick.",
+          "type": "enum",
+          "cases": {
+            "cliff": {
+              "description": "All-or-nothing at `unlock_at`. Top-up and Extend allowed.",
+              "type": "named",
+              "properties": {
+                "unlock_at": {
+                  "value": 8
+                }
+              }
+            },
+            "piecewise_linear": {
+              "description": "Piecewise-linear interpolation between sorted `(time, cumulative)`\nbreakpoints. The final amount must equal the lock's `total`.\nImmutable.",
+              "type": "named",
+              "properties": {
+                "steps": {
+                  "value": 10
+                }
+              }
+            },
+            "saturating_linear": {
+              "description": "Linear vest from `start_at` (0%) to `end_at` (100%). Reverts before\n`start_at`; saturates at `total` after `end_at`. Immutable.",
+              "type": "named",
+              "properties": {
+                "end_at": {
+                  "value": 8
+                },
+                "start_at": {
+                  "value": 8
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "cosmwasm_std_timestamp_Timestamp",
+          "description": "A point in time in nanosecond precision.\n\nThis type can represent times from 1970-01-01T00:00:00Z to 2554-07-21T23:34:33Z.\n\n## Examples\n\n```\n# use cosmwasm_std::Timestamp;\nlet ts = Timestamp::from_nanos(1_000_000_202);\nassert_eq!(ts.nanos(), 1_000_000_202);\nassert_eq!(ts.seconds(), 1);\nassert_eq!(ts.subsec_nanos(), 202);\n\nlet ts = ts.plus_seconds(2);\nassert_eq!(ts.nanos(), 3_000_000_202);\nassert_eq!(ts.seconds(), 3);\nassert_eq!(ts.subsec_nanos(), 202);\n```",
+          "type": "timestamp"
+        },
+        {
+          "name": "(cosmwasm_std::timestamp::Timestamp, cosmwasm_std::math::uint128::Uint128)",
+          "type": "tuple",
+          "items": [
+            8,
+            6
+          ]
+        },
+        {
+          "name": "alloc::vec::Vec<(cosmwasm_std::timestamp::Timestamp, cosmwasm_std::math::uint128::Uint128)>",
+          "type": "array",
+          "items": 9
+        },
+        {
+          "name": "core::option::Option<alloc::string::String>",
+          "type": "optional",
+          "inner": 5
+        },
+        {
+          "name": "alloc::vec::Vec<choice_token_locker::state::Lock>",
+          "type": "array",
+          "items": 1
+        }
+      ]
+    },
+    "locks_by_owner": {
+      "type": "v1",
+      "root": 0,
+      "definitions": [
+        {
+          "name": "choice_token_locker_msg_LocksResponse",
+          "type": "struct",
+          "properties": {
+            "locks": {
+              "value": 12
+            }
+          }
+        },
+        {
+          "name": "choice_token_locker_state_Lock",
+          "description": "A single locked position.\n\n- `total` grows on `TopUp` (cliff-only), never shrinks.\n- `withdrawn` grows on `Withdraw`, never shrinks.\n- Claimable at time `t` = `schedule.claimable_at(t, total) - withdrawn`.",
+          "type": "struct",
+          "properties": {
+            "created_at": {
+              "value": 8
+            },
+            "creator": {
+              "description": "Original depositor. Immutable; for provenance only.",
+              "value": 3
+            },
+            "denom": {
+              "value": 4
+            },
+            "description": {
+              "value": 11
+            },
+            "id": {
+              "value": 2
+            },
+            "owner": {
+              "description": "Current owner. Can `Withdraw`, `Extend`, `TopUp`, `TransferOwner`.",
+              "value": 3
+            },
+            "schedule": {
+              "value": 7
+            },
+            "title": {
+              "value": 11
+            },
+            "total": {
+              "value": 6
+            },
+            "withdrawn": {
+              "value": 6
+            }
+          }
+        },
+        {
+          "name": "u64",
+          "type": "integer",
+          "precision": 64,
+          "signed": false
+        },
+        {
+          "name": "cosmwasm_std_addresses_Addr",
+          "description": "A human readable address.\n\nIn Cosmos, this is typically bech32 encoded. But for multi-chain smart contracts no\nassumptions should be made other than being UTF-8 encoded and of reasonable length.\n\nThis type represents a validated address. It can be created in the following ways\n1. Use `Addr::unchecked(input)`\n2. Use `let checked: Addr = deps.api.addr_validate(input)?`\n3. Use `let checked: Addr = deps.api.addr_humanize(canonical_addr)?`\n4. Deserialize from JSON. This must only be done from JSON that was validated before\nsuch as a contract's state. `Addr` must not be used in messages sent by the user\nbecause this would result in unvalidated instances.\n\nThis type is immutable. If you really need to mutate it (Really? Are you sure?), create\na mutable copy using `let mut mutable = Addr::to_string()` and operate on that `String`\ninstance.",
+          "type": "address"
+        },
+        {
+          "name": "choice_token_locker_denom_CheckedDenom",
+          "description": "Stored, validated denom. Use [`key`](Self::key) for stable map indexing\n(`native:<d>` / `cw20:<addr>`) and [`transfer_msg`](Self::transfer_msg)\nto construct the outbound transfer for `Withdraw`.",
+          "type": "enum",
+          "cases": {
+            "cw20": {
+              "type": "tuple",
+              "items": [
+                3
+              ]
+            },
+            "native": {
+              "type": "tuple",
+              "items": [
+                5
+              ]
+            }
+          }
+        },
+        {
+          "name": "String",
+          "type": "string"
+        },
+        {
+          "name": "cosmwasm_std_math_uint128_Uint128",
+          "description": "A thin wrapper around u128 that is using strings for JSON encoding/decoding,\nsuch that the full u128 range can be used for clients that convert JSON numbers to floats,\nlike JavaScript and jq.\n\n# Examples\n\nUse `from` to create instances of this and `u128` to get the value out:\n\n```\n# use cosmwasm_std::Uint128;\nlet a = Uint128::from(123u128);\nassert_eq!(a.u128(), 123);\n\nlet b = Uint128::from(42u64);\nassert_eq!(b.u128(), 42);\n\nlet c = Uint128::from(70u32);\nassert_eq!(c.u128(), 70);\n```",
+          "type": "integer",
+          "precision": 128,
+          "signed": false
+        },
+        {
+          "name": "choice_token_locker_schedule_Schedule",
+          "description": "How a lock becomes claimable over time.\n\n`claimable_at(t, total)` returns the cumulative amount unlocked at time `t`.\n`Withdraw` releases `claimable_at(now, total) - withdrawn`.\n\n`Cliff` is the only schedule that supports `TopUp` and `Extend`. The vesting\nvariants are immutable once created — top-up semantics on a vesting curve are\nambiguous (should the new funds back-vest, or vest going forward?), so we\ndon't try to pick.",
+          "type": "enum",
+          "cases": {
+            "cliff": {
+              "description": "All-or-nothing at `unlock_at`. Top-up and Extend allowed.",
+              "type": "named",
+              "properties": {
+                "unlock_at": {
+                  "value": 8
+                }
+              }
+            },
+            "piecewise_linear": {
+              "description": "Piecewise-linear interpolation between sorted `(time, cumulative)`\nbreakpoints. The final amount must equal the lock's `total`.\nImmutable.",
+              "type": "named",
+              "properties": {
+                "steps": {
+                  "value": 10
+                }
+              }
+            },
+            "saturating_linear": {
+              "description": "Linear vest from `start_at` (0%) to `end_at` (100%). Reverts before\n`start_at`; saturates at `total` after `end_at`. Immutable.",
+              "type": "named",
+              "properties": {
+                "end_at": {
+                  "value": 8
+                },
+                "start_at": {
+                  "value": 8
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "cosmwasm_std_timestamp_Timestamp",
+          "description": "A point in time in nanosecond precision.\n\nThis type can represent times from 1970-01-01T00:00:00Z to 2554-07-21T23:34:33Z.\n\n## Examples\n\n```\n# use cosmwasm_std::Timestamp;\nlet ts = Timestamp::from_nanos(1_000_000_202);\nassert_eq!(ts.nanos(), 1_000_000_202);\nassert_eq!(ts.seconds(), 1);\nassert_eq!(ts.subsec_nanos(), 202);\n\nlet ts = ts.plus_seconds(2);\nassert_eq!(ts.nanos(), 3_000_000_202);\nassert_eq!(ts.seconds(), 3);\nassert_eq!(ts.subsec_nanos(), 202);\n```",
+          "type": "timestamp"
+        },
+        {
+          "name": "(cosmwasm_std::timestamp::Timestamp, cosmwasm_std::math::uint128::Uint128)",
+          "type": "tuple",
+          "items": [
+            8,
+            6
+          ]
+        },
+        {
+          "name": "alloc::vec::Vec<(cosmwasm_std::timestamp::Timestamp, cosmwasm_std::math::uint128::Uint128)>",
+          "type": "array",
+          "items": 9
+        },
+        {
+          "name": "core::option::Option<alloc::string::String>",
+          "type": "optional",
+          "inner": 5
+        },
+        {
+          "name": "alloc::vec::Vec<choice_token_locker::state::Lock>",
+          "type": "array",
+          "items": 1
+        }
+      ]
+    },
+    "stats": {
+      "type": "v1",
+      "root": 0,
+      "definitions": [
+        {
+          "name": "choice_token_locker_msg_StatsResponse",
+          "type": "struct",
+          "properties": {
+            "total_locks": {
+              "description": "Monotonic counter of locks ever created. Lock ids run 1..=total_locks.",
+              "value": 1
+            }
+          }
+        },
+        {
+          "name": "u64",
+          "type": "integer",
+          "precision": 64,
+          "signed": false
+        }
+      ]
+    }
+  }
+}

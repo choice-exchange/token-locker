@@ -1,0 +1,178 @@
+{
+  "type": "v1",
+  "root": 0,
+  "definitions": [
+    {
+      "name": "choice_token_locker_msg_QueryMsg",
+      "type": "enum",
+      "cases": {
+        "all_locks": {
+          "type": "named",
+          "properties": {
+            "limit": {
+              "value": 5
+            },
+            "order": {
+              "value": 7
+            },
+            "start_after": {
+              "value": 3
+            }
+          }
+        },
+        "claimable": {
+          "description": "Current claimable amount for a lock at the given time (defaults to block time).",
+          "type": "named",
+          "properties": {
+            "at": {
+              "value": 9
+            },
+            "id": {
+              "value": 1
+            }
+          }
+        },
+        "claimable_many": {
+          "description": "Batched claimable lookup, capped at 100 ids per call. Unknown ids return\n`entry.response = None` rather than failing the whole query.",
+          "type": "named",
+          "properties": {
+            "at": {
+              "value": 9
+            },
+            "ids": {
+              "value": 10
+            }
+          }
+        },
+        "config": {
+          "type": "named",
+          "properties": {}
+        },
+        "lock": {
+          "type": "named",
+          "properties": {
+            "id": {
+              "value": 1
+            }
+          }
+        },
+        "locks_by_creator": {
+          "description": "\"Locks I created\" — survives `TransferOwner` so an OTC seller can still\naudit their issued locks after handing ownership to the buyer.",
+          "type": "named",
+          "properties": {
+            "creator": {
+              "value": 2
+            },
+            "limit": {
+              "value": 5
+            },
+            "order": {
+              "value": 7
+            },
+            "start_after": {
+              "value": 3
+            }
+          }
+        },
+        "locks_by_denom": {
+          "type": "named",
+          "properties": {
+            "denom": {
+              "value": 2
+            },
+            "limit": {
+              "value": 5
+            },
+            "order": {
+              "value": 7
+            },
+            "start_after": {
+              "value": 3
+            }
+          }
+        },
+        "locks_by_owner": {
+          "type": "named",
+          "properties": {
+            "limit": {
+              "value": 5
+            },
+            "order": {
+              "value": 7
+            },
+            "owner": {
+              "value": 2
+            },
+            "start_after": {
+              "value": 3
+            }
+          }
+        },
+        "stats": {
+          "description": "Aggregate counters. `total_locks` is the monotonic nonce — useful for\n\"X locks created\" UI and as a paging upper bound.",
+          "type": "named",
+          "properties": {}
+        }
+      }
+    },
+    {
+      "name": "u64",
+      "type": "integer",
+      "precision": 64,
+      "signed": false
+    },
+    {
+      "name": "String",
+      "type": "string"
+    },
+    {
+      "name": "core::option::Option<u64>",
+      "type": "optional",
+      "inner": 1
+    },
+    {
+      "name": "u32",
+      "type": "integer",
+      "precision": 32,
+      "signed": false
+    },
+    {
+      "name": "core::option::Option<u32>",
+      "type": "optional",
+      "inner": 4
+    },
+    {
+      "name": "choice_token_locker_msg_SortOrder",
+      "description": "Sort order for paginated queries.\n\n`start_after` is always exclusive on the inner lock-id. With `Desc`, the\nfrontend should track the **smallest** id seen on a page to fetch the next\npage (vs the largest for `Asc`).",
+      "type": "enum",
+      "cases": {
+        "asc": {
+          "type": "unit"
+        },
+        "desc": {
+          "type": "unit"
+        }
+      }
+    },
+    {
+      "name": "core::option::Option<choice_token_locker::msg::SortOrder>",
+      "type": "optional",
+      "inner": 6
+    },
+    {
+      "name": "cosmwasm_std_timestamp_Timestamp",
+      "description": "A point in time in nanosecond precision.\n\nThis type can represent times from 1970-01-01T00:00:00Z to 2554-07-21T23:34:33Z.\n\n## Examples\n\n```\n# use cosmwasm_std::Timestamp;\nlet ts = Timestamp::from_nanos(1_000_000_202);\nassert_eq!(ts.nanos(), 1_000_000_202);\nassert_eq!(ts.seconds(), 1);\nassert_eq!(ts.subsec_nanos(), 202);\n\nlet ts = ts.plus_seconds(2);\nassert_eq!(ts.nanos(), 3_000_000_202);\nassert_eq!(ts.seconds(), 3);\nassert_eq!(ts.subsec_nanos(), 202);\n```",
+      "type": "timestamp"
+    },
+    {
+      "name": "core::option::Option<cosmwasm_std::timestamp::Timestamp>",
+      "type": "optional",
+      "inner": 8
+    },
+    {
+      "name": "alloc::vec::Vec<u64>",
+      "type": "array",
+      "items": 1
+    }
+  ]
+}
