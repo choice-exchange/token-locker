@@ -1,0 +1,122 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    html,
+    body,
+    #root {
+        height: 100%;
+    }
+    body {
+        margin: 0;
+        padding: 0;
+        @apply bg-darkBgColor text-white antialiased;
+    }
+    * {
+        font-family: "Montserrat", "Inter", system-ui, sans-serif;
+        box-sizing: border-box;
+    }
+    input,
+    select,
+    textarea {
+        @apply bg-btnGrey border border-ink-500 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-primaryColor focus:border-primaryColor text-white;
+    }
+    /* date picker icons readable on dark bg */
+    input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+    input[type="date"]::-webkit-calendar-picker-indicator,
+    input[type="time"]::-webkit-calendar-picker-indicator {
+        filter: invert(1);
+    }
+    label {
+        @apply text-xs uppercase tracking-wide text-textGrey font-medium;
+    }
+    a {
+        @apply text-primaryColor hover:text-primaryColorDark;
+    }
+    /* number input spinners off */
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+    input[type="number"] {
+        -moz-appearance: textfield;
+        appearance: none;
+    }
+}
+
+@layer components {
+    .card {
+        @apply bg-greyBgColor border border-ink-500/60 rounded-xl p-5 shadow-sm;
+    }
+    .btn {
+        @apply inline-flex items-center justify-center font-semibold rounded-lg text-sm px-4 py-2 transition disabled:opacity-50 disabled:cursor-not-allowed;
+    }
+    .btn-primary {
+        @apply btn bg-primaryColor text-black hover:opacity-80;
+    }
+    .btn-secondary {
+        @apply btn bg-btnGrey text-primaryColor hover:opacity-75;
+    }
+    .btn-ghost {
+        @apply btn text-textGrey hover:text-white hover:bg-socialColors;
+    }
+    .btn-danger {
+        @apply btn bg-bad/20 hover:bg-bad/30 text-bad border border-bad/30;
+    }
+    .pill {
+        @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-mono bg-btnGrey text-textGrey border border-ink-500;
+    }
+    .tab {
+        @apply px-4 py-2 text-sm font-semibold text-textGrey hover:text-white border-b-2 border-transparent transition;
+    }
+    .tab-active {
+        @apply text-primaryColor border-primaryColor;
+    }
+    .row {
+        @apply flex items-center justify-between gap-3;
+    }
+    .kbd {
+        @apply font-mono text-xs text-ink-300;
+    }
+    .brand-gradient-text {
+        background: linear-gradient(
+            106.27deg,
+            rgba(38, 161, 123, 1) -22.4%,
+            rgba(221, 185, 98, 1) 139.03%
+        );
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+    }
+}
+
+@layer utilities {
+    .dark-scrollbar {
+        scrollbar-width: thin;
+        scrollbar-color: #82848e #020202;
+    }
+    .dark-scrollbar::-webkit-scrollbar {
+        width: 8px;
+    }
+    .dark-scrollbar::-webkit-scrollbar-track {
+        background: #020202;
+    }
+    .dark-scrollbar::-webkit-scrollbar-thumb {
+        background: #262626;
+        border-radius: 6px;
+        border: 2px solid #020202;
+    }
+}
+
+/* react-toastify: dark surface, Choice border */
+.Toastify__toast {
+    background: theme("colors.greyBgColor") !important;
+    color: white !important;
+    border: 1px solid theme("colors.btnGrey") !important;
+    font-family: "Montserrat", sans-serif !important;
+}
+.Toastify__progress-bar {
+    background: theme("colors.primaryColor") !important;
+}

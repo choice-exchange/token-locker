@@ -357,8 +357,10 @@ cargo run --bin schema -p choice-token-locker
 # → schema/raw/*.json                  (per-message JSON Schemas)
 ```
 
-The frontend (`choice_exchange_app/`) consumes these to generate type-safe
-client bindings.
+The standalone learning UI at [`frontend/`](frontend/) consumes these — its
+[`src/types/locker.ts`](frontend/src/types/locker.ts) is a hand-written 1:1
+mirror of the schema. Once that UI is graduated, the long-term home is
+`choice_exchange_app/` reusing the same bindings.
 
 ---
 
@@ -413,6 +415,7 @@ token-locker/
 ├── cw20_base/              cw20-base wasm for integration tests
 ├── schema/                 JSON schemas (generated)
 ├── tests/integration.rs    injective-test-tube scenarios
+├── frontend/               standalone React + TS UI (Vite); see frontend/README.md
 └── contracts/locker/
     ├── Cargo.toml
     └── src/
@@ -436,4 +439,6 @@ token-locker/
   transferable owner, partial withdraws, optional creation fee.
 - **v2 (post-deploy):** cw721 wrap (lock-as-NFT, tradeable on marketplaces),
   optional cw20 creation fee path.
-- **Frontend:** UI in `choice_exchange_app/` consuming the generated schema.
+- **Frontend (current):** standalone React + TS UI at [`frontend/`](frontend/)
+  covering Create / My Locks / Explore / Admin against the generated schema.
+  Designed to graduate into `choice_exchange_app/` once the UX is settled.
