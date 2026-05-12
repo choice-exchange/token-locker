@@ -88,15 +88,11 @@ pub enum Cw20HookMsg {
 /// frontend should track the **smallest** id seen on a page to fetch the next
 /// page (vs the largest for `Asc`).
 #[cw_serde]
+#[derive(Default)]
 pub enum SortOrder {
+    #[default]
     Asc,
     Desc,
-}
-
-impl Default for SortOrder {
-    fn default() -> Self {
-        SortOrder::Asc
-    }
 }
 
 impl SortOrder {
