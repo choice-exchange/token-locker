@@ -21,8 +21,9 @@ pub struct InstantiateMsg {
 #[cw_serde]
 pub enum ExecuteMsg {
     /// Create a lock funded by attached native funds. cw20 locks MUST use
-    /// the `Receive` hook instead — passing `UncheckedDenom::Cw20(...)` here is
-    /// rejected.
+    /// either `LockCw20` (with native fee, recommended path) or the legacy
+    /// `Receive` hook (only valid when no `creation_fee` is configured) —
+    /// passing `UncheckedDenom::Cw20(...)` here is rejected.
     Lock {
         denom: UncheckedDenom,
         amount: Uint128,
@@ -31,8 +32,29 @@ pub enum ExecuteMsg {
         description: Option<String>,
     },
 
+    /// Create a cw20 lock and charge the native creation fee atomically. The
+    /// caller must first call `cw20::IncreaseAllowance { spender: locker,
+    /// amount }` on the target cw20 contract, then call this with the
+    /// `creation_fee` attached in `info.funds`. The locker pulls `amount` via
+    /// `Cw20::TransferFrom` and forwards the fee to `fee_collector`.
+    ///
+    /// This path is the only way to create a cw20 lock when a fee is
+    /// configured — the legacy `Receive` path cannot carry native funds, so it
+    /// rejects with `Cw20LockRequiresFeePath` when a fee is set.
+    LockCw20 {
+        cw20_addr: String,
+        amount: Uint128,
+        schedule: Schedule,
+        title: Option<String>,
+        description: Option<String>,
+    },
+
     /// cw20 entry point. Invoked by the cw20 contract via its `Send` hook.
     /// The wrapped `msg` field is a base64-encoded [`Cw20HookMsg`].
+    ///
+    /// `Cw20HookMsg::Lock` is rejected when `creation_fee` is configured (use
+    /// `LockCw20` instead). `Cw20HookMsg::TopUp` is always accepted — top-ups
+    /// don't pay the creation fee in either path.
     Receive(Cw20ReceiveMsg),
 
     /// Move a `Cliff` lock's `unlock_at` strictly forward. Owner-only.

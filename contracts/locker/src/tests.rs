@@ -1,7 +1,7 @@
 use cosmwasm_std::testing::{message_info, mock_dependencies, mock_env, MockApi};
 use cosmwasm_std::{
-    coins, from_json, to_json_binary, Addr, BankMsg, Coin, ContractResult, CosmosMsg, SystemResult,
-    Timestamp, Uint128, Uint256, WasmMsg, WasmQuery,
+    coins, from_json, to_json_binary, Addr, BankMsg, Coin, ContractInfoResponse, ContractResult,
+    CosmosMsg, SystemResult, Timestamp, Uint128, Uint256, WasmMsg, WasmQuery,
 };
 use crate::contract::{execute, instantiate, query};
 use crate::cw20::{Cw20ReceiveMsg, TokenInfoResponse};
@@ -45,9 +45,14 @@ fn setup(creation_fee: Option<Coin>) -> (
 ) {
     let mut deps = mock_dependencies();
     let a = actors();
-    // Wire the wasm querier so the cw20 sanity probe (`TokenInfo {}`) succeeds
-    // for the canonical `cw20` test address and fails for everything else.
+    // Wire the wasm querier so:
+    //   - the cw20 sanity probe (`TokenInfo {}`) succeeds for the canonical
+    //     `cw20` test address and fails for everything else
+    //   - the H-2 wasm-admin alignment query for the locker's own address
+    //     returns an admin matching `Config.admin`
     let cw20_addr = a.cw20.to_string();
+    let self_addr = mock_env().contract.address.to_string();
+    let self_admin = a.admin.to_string();
     deps.querier.update_wasm(move |q: &WasmQuery| match q {
         WasmQuery::Smart { contract_addr, .. } if contract_addr == &cw20_addr => {
             SystemResult::Ok(ContractResult::Ok(
@@ -60,9 +65,21 @@ fn setup(creation_fee: Option<Coin>) -> (
                 .unwrap(),
             ))
         }
+        WasmQuery::ContractInfo { contract_addr } if contract_addr == &self_addr => {
+            let resp = ContractInfoResponse::new(
+                1,
+                Addr::unchecked("creator"),
+                Some(Addr::unchecked(self_admin.clone())),
+                false,
+                None,
+                None,
+            );
+            SystemResult::Ok(ContractResult::Ok(to_json_binary(&resp).unwrap()))
+        }
         _ => SystemResult::Err(cosmwasm_std::SystemError::NoSuchContract {
             addr: match q {
                 WasmQuery::Smart { contract_addr, .. } => contract_addr.clone(),
+                WasmQuery::ContractInfo { contract_addr } => contract_addr.clone(),
                 _ => "unknown".to_string(),
             },
         }),
@@ -986,4 +1003,324 @@ fn validate_rejects_piecewise_nonzero_first_step() {
     )
     .unwrap_err();
     assert!(matches!(err, ContractError::InvalidSchedule(_)), "{err:?}");
+}
+
+// ─── H-1 / H-2 regressions ───────────────────────────────────────────────────
+
+/// Install a `WasmQuery::ContractInfo` handler that reports the configured
+/// wasm admin for the locker's own address. Pass `None` to simulate the
+/// "no wasm admin" deployment shape.
+fn install_self_contract_info(
+    deps: &mut cosmwasm_std::OwnedDeps<
+        cosmwasm_std::testing::MockStorage,
+        cosmwasm_std::testing::MockApi,
+        cosmwasm_std::testing::MockQuerier,
+    >,
+    admin: Option<String>,
+) {
+    let self_addr = mock_env().contract.address.to_string();
+    deps.querier.update_wasm(move |q: &WasmQuery| match q {
+        WasmQuery::ContractInfo { contract_addr } if contract_addr == &self_addr => {
+            let resp = ContractInfoResponse::new(
+                1,
+                Addr::unchecked("creator"),
+                admin.clone().map(Addr::unchecked),
+                false,
+                None,
+                None,
+            );
+            SystemResult::Ok(ContractResult::Ok(to_json_binary(&resp).unwrap()))
+        }
+        _ => SystemResult::Err(cosmwasm_std::SystemError::NoSuchContract {
+            addr: match q {
+                WasmQuery::Smart { contract_addr, .. } => contract_addr.clone(),
+                WasmQuery::ContractInfo { contract_addr } => contract_addr.clone(),
+                _ => "unknown".to_string(),
+            },
+        }),
+    });
+}
+
+#[test]
+fn h2_instantiate_rejects_wasm_admin_mismatch() {
+    let mut deps = mock_dependencies();
+    let a = actors();
+    install_self_contract_info(&mut deps, Some(a.alice.to_string()));
+    let info = message_info(&a.admin, &[]);
+    let err = crate::contract::instantiate(
+        deps.as_mut(),
+        mock_env(),
+        info,
+        InstantiateMsg {
+            admin: Some(a.admin.to_string()),
+            fee_collector: None,
+            creation_fee: None,
+        },
+    )
+    .unwrap_err();
+    assert!(
+        matches!(err, ContractError::InvalidConfig(ref m) if m.contains("wasm admin")),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn h2_instantiate_allows_no_wasm_admin() {
+    let mut deps = mock_dependencies();
+    let a = actors();
+    install_self_contract_info(&mut deps, None);
+    let info = message_info(&a.admin, &[]);
+    crate::contract::instantiate(
+        deps.as_mut(),
+        mock_env(),
+        info,
+        InstantiateMsg {
+            admin: Some(a.admin.to_string()),
+            fee_collector: None,
+            creation_fee: None,
+        },
+    )
+    .unwrap();
+}
+
+#[test]
+fn h2_instantiate_accepts_matching_admins() {
+    let mut deps = mock_dependencies();
+    let a = actors();
+    install_self_contract_info(&mut deps, Some(a.admin.to_string()));
+    let info = message_info(&a.admin, &[]);
+    crate::contract::instantiate(
+        deps.as_mut(),
+        mock_env(),
+        info,
+        InstantiateMsg {
+            admin: Some(a.admin.to_string()),
+            fee_collector: None,
+            creation_fee: None,
+        },
+    )
+    .unwrap();
+}
+
+#[test]
+fn h1_migrate_rejects_foreign_cw2_contract() {
+    use crate::msg::MigrateMsg;
+    let (mut deps, _a) = setup(None);
+    cw2::set_contract_version(deps.as_mut().storage, "crates.io:something-else", "1.0.0").unwrap();
+    let err = crate::contract::migrate(deps.as_mut(), mock_env(), MigrateMsg {}).unwrap_err();
+    assert!(
+        matches!(err, ContractError::InvalidConfig(ref m) if m.contains("cannot migrate")),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn h1_migrate_accepts_same_cw2_contract() {
+    use crate::msg::MigrateMsg;
+    let (mut deps, _a) = setup(None);
+    crate::contract::migrate(deps.as_mut(), mock_env(), MigrateMsg {}).unwrap();
+}
+
+// ─── M-4 fix: cw20 fee enforcement ──────────────────────────────────────────
+
+/// Happy path: LockCw20 dispatches a TransferFrom for `amount`, forwards the
+/// fee to the collector, and records the lock with `denom_kind=cw20`.
+#[test]
+fn m4_lock_cw20_charges_fee_and_pulls_via_transfer_from() {
+    use crate::cw20::Cw20ExecuteMsg as VendCw20;
+    let fee = Coin { denom: DENOM.into(), amount: Uint256::from(10u128) };
+    let (mut deps, a) = setup(Some(fee.clone()));
+    let env = mock_env();
+    let unlock_at = future(&env, 1000);
+
+    // Caller attaches exactly the fee (10 inj). cw20 deposit goes through
+    // TransferFrom; no native coin for the lock itself.
+    let info = message_info(&a.alice, &coins(10, DENOM));
+    let res = execute(
+        deps.as_mut(),
+        env,
+        info,
+        ExecuteMsg::LockCw20 {
+            cw20_addr: a.cw20.to_string(),
+            amount: Uint128::new(500),
+            schedule: Schedule::Cliff { unlock_at },
+            title: Some("vest".into()),
+            description: None,
+        },
+    )
+    .unwrap();
+
+    // First message: cw20 TransferFrom pulling 500 from alice to the locker.
+    match &res.messages[0].msg {
+        CosmosMsg::Wasm(WasmMsg::Execute { contract_addr, msg, funds }) => {
+            assert_eq!(contract_addr, &a.cw20.to_string());
+            assert!(funds.is_empty());
+            let decoded: VendCw20 = from_json(msg).unwrap();
+            match decoded {
+                VendCw20::TransferFrom { owner, recipient, amount } => {
+                    assert_eq!(owner, a.alice.to_string());
+                    assert_eq!(amount, Uint128::new(500));
+                    assert_eq!(recipient, mock_env().contract.address.to_string());
+                }
+                _ => panic!("expected TransferFrom"),
+            }
+        }
+        _ => panic!("expected cw20 transfer_from wasm msg"),
+    }
+    // Second message: fee forward to collector.
+    match &res.messages[1].msg {
+        CosmosMsg::Bank(BankMsg::Send { to_address, amount }) => {
+            assert_eq!(to_address, &a.fee_coll.to_string());
+            assert_eq!(amount, &vec![Coin { denom: DENOM.into(), amount: Uint256::from(10u128) }]);
+        }
+        _ => panic!("expected bank send for fee forward"),
+    }
+
+    // Confirm the lock was recorded with cw20 denom kind.
+    let res: LockResponse = from_json(
+        query(deps.as_ref(), mock_env(), QueryMsg::Lock { id: 1 }).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(res.lock.total, Uint128::new(500));
+    matches!(res.lock.denom, crate::denom::CheckedDenom::Cw20(_));
+}
+
+/// When fee is configured, the legacy `Receive` path for Lock must reject —
+/// otherwise users could bypass the fee by routing through cw20 Send.
+#[test]
+fn m4_receive_lock_rejected_when_fee_configured() {
+    let fee = Coin { denom: DENOM.into(), amount: Uint256::from(10u128) };
+    let (mut deps, a) = setup(Some(fee));
+    let env = mock_env();
+    let unlock_at = future(&env, 1000);
+
+    let hook = Cw20HookMsg::Lock {
+        schedule: Schedule::Cliff { unlock_at },
+        title: None,
+        description: None,
+    };
+    let rcv = Cw20ReceiveMsg {
+        sender: a.alice.to_string(),
+        amount: Uint128::new(1000),
+        msg: to_json_binary(&hook).unwrap(),
+    };
+    let info = message_info(&a.cw20, &[]);
+    let err =
+        execute(deps.as_mut(), env, info, ExecuteMsg::Receive(rcv)).unwrap_err();
+    assert!(matches!(err, ContractError::Cw20LockRequiresFeePath {}), "{err:?}");
+}
+
+/// TopUp via cw20 Receive must STILL work when a fee is configured — top-ups
+/// don't pay the creation fee in either native or cw20 paths.
+#[test]
+fn m4_receive_topup_allowed_when_fee_configured() {
+    let fee = Coin { denom: DENOM.into(), amount: Uint256::from(10u128) };
+    let (mut deps, a) = setup(Some(fee));
+    let env = mock_env();
+    let unlock_at = future(&env, 1000);
+
+    // First create a cw20 lock via LockCw20 (with fee).
+    let info = message_info(&a.alice, &coins(10, DENOM));
+    execute(
+        deps.as_mut(),
+        env.clone(),
+        info,
+        ExecuteMsg::LockCw20 {
+            cw20_addr: a.cw20.to_string(),
+            amount: Uint128::new(500),
+            schedule: Schedule::Cliff { unlock_at },
+            title: None,
+            description: None,
+        },
+    )
+    .unwrap();
+
+    // Now top up via Receive — should succeed without a fee.
+    let rcv = Cw20ReceiveMsg {
+        sender: a.alice.to_string(),
+        amount: Uint128::new(50),
+        msg: to_json_binary(&Cw20HookMsg::TopUp { id: 1 }).unwrap(),
+    };
+    let info = message_info(&a.cw20, &[]);
+    execute(deps.as_mut(), env, info, ExecuteMsg::Receive(rcv)).unwrap();
+
+    let res: LockResponse = from_json(
+        query(deps.as_ref(), mock_env(), QueryMsg::Lock { id: 1 }).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(res.lock.total, Uint128::new(550));
+}
+
+/// LockCw20 with no fee configured still works (no funds attached).
+#[test]
+fn m4_lock_cw20_works_without_fee() {
+    let (mut deps, a) = setup(None);
+    let env = mock_env();
+    let unlock_at = future(&env, 1000);
+
+    let info = message_info(&a.alice, &[]);
+    execute(
+        deps.as_mut(),
+        env,
+        info,
+        ExecuteMsg::LockCw20 {
+            cw20_addr: a.cw20.to_string(),
+            amount: Uint128::new(500),
+            schedule: Schedule::Cliff { unlock_at },
+            title: None,
+            description: None,
+        },
+    )
+    .unwrap();
+}
+
+/// LockCw20 rejects extra funds attached beyond the configured fee.
+#[test]
+fn m4_lock_cw20_rejects_extra_funds() {
+    let fee = Coin { denom: DENOM.into(), amount: Uint256::from(10u128) };
+    let (mut deps, a) = setup(Some(fee));
+    let env = mock_env();
+    let unlock_at = future(&env, 1000);
+
+    // 10 fee + 50 extra junk = 60 attached. Should reject.
+    let info = message_info(&a.alice, &coins(60, DENOM));
+    let err = execute(
+        deps.as_mut(),
+        env,
+        info,
+        ExecuteMsg::LockCw20 {
+            cw20_addr: a.cw20.to_string(),
+            amount: Uint128::new(500),
+            schedule: Schedule::Cliff { unlock_at },
+            title: None,
+            description: None,
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(err, ContractError::WrongFundsAttached {}), "{err:?}");
+}
+
+/// LockCw20 rejects when fee is configured but caller forgot to attach it.
+#[test]
+fn m4_lock_cw20_rejects_missing_fee() {
+    let fee = Coin { denom: DENOM.into(), amount: Uint256::from(10u128) };
+    let (mut deps, a) = setup(Some(fee));
+    let env = mock_env();
+    let unlock_at = future(&env, 1000);
+
+    let info = message_info(&a.alice, &[]);
+    let err = execute(
+        deps.as_mut(),
+        env,
+        info,
+        ExecuteMsg::LockCw20 {
+            cw20_addr: a.cw20.to_string(),
+            amount: Uint128::new(500),
+            schedule: Schedule::Cliff { unlock_at },
+            title: None,
+            description: None,
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(err, ContractError::CreationFeeMissing { .. }), "{err:?}");
 }

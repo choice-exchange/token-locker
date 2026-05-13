@@ -1,11 +1,11 @@
 use cosmwasm_std::{
     entry_point, from_json, to_json_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut,
-    Env, MessageInfo, Order, Response, StdResult, Storage, Timestamp, Uint128,
+    Env, MessageInfo, Order, Response, StdResult, Storage, Timestamp, Uint128, WasmMsg,
 };
-use cw2::set_contract_version;
+use cw2::{get_contract_version, set_contract_version};
 use cw_storage_plus::Bound;
 
-use crate::cw20::{Cw20QueryMsg, Cw20ReceiveMsg, TokenInfoResponse};
+use crate::cw20::{Cw20ExecuteMsg, Cw20QueryMsg, Cw20ReceiveMsg, TokenInfoResponse};
 
 use crate::denom::{CheckedDenom, UncheckedDenom};
 use crate::error::ContractError;
@@ -32,7 +32,7 @@ const MAX_BATCH_IDS: usize = 100;
 #[entry_point]
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -49,6 +49,36 @@ pub fn instantiate(
         .transpose()?;
 
     validate_fee_config(&msg.creation_fee, &fee_collector)?;
+
+    // H-2: enforce that the wasm `admin` (the address authorized to call
+    // `MsgMigrateContract`) matches `Config.admin`. The contract holds escrowed
+    // user funds; a wasm-admin compromise that diverges from the on-chain admin
+    // would let the migrator swap the code and drain every Lock. Either both
+    // are the same address (typical: a governance multisig + admin-timelock),
+    // or the wasm admin is unset (the code is locked, no migrate path at all).
+    let wasm_info = deps
+        .querier
+        .query_wasm_contract_info(env.contract.address.as_str())?;
+    match (&wasm_info.admin, &admin) {
+        (Some(actual), Some(expected)) if actual.as_str() == expected.as_str() => {}
+        (None, _) => {
+            // No wasm admin — migrates are impossible at the chain level, so
+            // the alignment requirement is vacuous. This is the strictest /
+            // most defensive deployment.
+        }
+        (Some(actual), expected) => {
+            return Err(ContractError::InvalidConfig(format!(
+                "wasm admin ({}) must match Config.admin ({}): a wasm-admin \
+                 compromise would otherwise bypass the on-chain admin to \
+                 migrate the locker and drain user locks",
+                actual,
+                expected
+                    .as_ref()
+                    .map(|a| a.as_str().to_string())
+                    .unwrap_or_else(|| "<none>".into())
+            )));
+        }
+    }
 
     CONFIG.save(
         deps.storage,
@@ -101,6 +131,9 @@ pub fn execute(
     match msg {
         ExecuteMsg::Lock { denom, amount, schedule, title, description } => {
             execute_lock_native(deps, env, info, denom, amount, schedule, title, description)
+        }
+        ExecuteMsg::LockCw20 { cw20_addr, amount, schedule, title, description } => {
+            execute_lock_cw20(deps, env, info, cw20_addr, amount, schedule, title, description)
         }
         ExecuteMsg::Receive(rcv) => execute_receive(deps, env, info, rcv),
         ExecuteMsg::Extend { id, new_unlock_at } => execute_extend(deps, env, info, id, new_unlock_at),
@@ -177,6 +210,71 @@ fn execute_lock_native(
         .add_attribute("final_unlock_at", lock.schedule.final_unlock_at().seconds().to_string()))
 }
 
+/// Create a cw20 lock and charge the native creation fee atomically. Caller
+/// must have pre-approved the locker for at least `amount` on the cw20.
+///
+/// The legacy `Receive` path cannot pay a native fee (cw20::Send carries no
+/// `info.funds`), so when `creation_fee.is_some()` it rejects with
+/// `Cw20LockRequiresFeePath` and forces callers here.
+#[allow(clippy::too_many_arguments)]
+fn execute_lock_cw20(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    cw20_addr: String,
+    amount: Uint128,
+    schedule: Schedule,
+    title: Option<String>,
+    description: Option<String>,
+) -> Result<Response, ContractError> {
+    let cw20_addr = deps.api.addr_validate(&cw20_addr)?;
+    assert_is_cw20(deps.as_ref(), &cw20_addr)?;
+
+    // Strip the creation fee from info.funds. With a fee configured, the
+    // attached funds must be exactly `creation_fee`. Without a fee, no funds
+    // should be attached.
+    let remaining_funds = take_creation_fee(deps.storage, &info.funds)?;
+    if !remaining_funds.is_empty() {
+        return Err(ContractError::WrongFundsAttached {});
+    }
+
+    let transfer_from = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: cw20_addr.to_string(),
+        msg: to_json_binary(&Cw20ExecuteMsg::TransferFrom {
+            owner: info.sender.to_string(),
+            recipient: env.contract.address.to_string(),
+            amount,
+        })?,
+        funds: vec![],
+    });
+
+    let lock = create_lock(
+        deps.storage,
+        env.block.time,
+        info.sender.clone(),
+        info.sender.clone(),
+        CheckedDenom::Cw20(cw20_addr),
+        amount,
+        schedule,
+        title,
+        description,
+    )?;
+
+    Ok(Response::new()
+        .add_message(transfer_from)
+        .add_messages(forward_fee_msg(deps.storage)?)
+        .add_attribute("action", "lock")
+        .add_attribute("id", lock.id.to_string())
+        .add_attribute("amount", amount)
+        .add_attribute("owner", lock.owner.as_str())
+        .add_attribute("creator", lock.creator.as_str())
+        .add_attribute("denom", lock.denom.as_str())
+        .add_attribute("denom_kind", lock.denom.kind_str())
+        .add_attribute("schedule_type", lock.schedule.type_tag())
+        .add_attribute("unlock_at", lock.schedule.first_unlock_at().seconds().to_string())
+        .add_attribute("final_unlock_at", lock.schedule.final_unlock_at().seconds().to_string()))
+}
+
 fn execute_receive(
     deps: DepsMut,
     env: Env,
@@ -195,8 +293,14 @@ fn execute_receive(
     let amount = rcv.amount;
     let hook: Cw20HookMsg = from_json(&rcv.msg)?;
 
-    // No creation fee charging path for cw20 deposits: fee is native and would
-    // require a second message. Document this — fee applies to native locks only.
+    // M-4: when a creation fee is configured, the Send-hook path cannot pay it
+    // (cw20::Send carries no native funds). Reject `Lock` here so callers are
+    // forced through `LockCw20`, where the fee is enforced atomically. `TopUp`
+    // is exempt because top-ups never pay the fee (mirrors native TopUp).
+    let cfg = CONFIG.load(deps.storage)?;
+    if cfg.creation_fee.is_some() && matches!(hook, Cw20HookMsg::Lock { .. }) {
+        return Err(ContractError::Cw20LockRequiresFeePath {});
+    }
 
     match hook {
         Cw20HookMsg::Lock { schedule, title, description } => {
@@ -279,7 +383,10 @@ fn create_lock(
         }
     }
 
-    let id = LOCK_COUNT.load(storage)? + 1;
+    let id = LOCK_COUNT
+        .load(storage)?
+        .checked_add(1)
+        .ok_or_else(|| ContractError::InvalidConfig("lock id counter overflow".into()))?;
     LOCK_COUNT.save(storage, &id)?;
 
     let lock = Lock {
@@ -701,6 +808,20 @@ fn paginate_all(
 
 #[entry_point]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    // H-1: refuse migration from any other contract. Without this check, the
+    // wasm admin could MsgMigrateContract an unrelated instance into this code
+    // id and the storage would be silently reinterpreted under this code's
+    // layout, corrupting every `Lock`.
+    let stored = get_contract_version(deps.storage)?;
+    if stored.contract != CONTRACT_NAME {
+        return Err(ContractError::InvalidConfig(format!(
+            "cannot migrate: expected contract {}, found {}",
+            CONTRACT_NAME, stored.contract
+        )));
+    }
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
-    Ok(Response::new().add_attribute("action", "migrate"))
+    Ok(Response::new()
+        .add_attribute("action", "migrate")
+        .add_attribute("from_version", stored.version)
+        .add_attribute("to_version", CONTRACT_VERSION))
 }

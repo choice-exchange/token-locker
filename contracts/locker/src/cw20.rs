@@ -19,6 +19,11 @@ pub struct Cw20ReceiveMsg {
 #[cw_serde]
 pub enum Cw20ExecuteMsg {
     Transfer { recipient: String, amount: Uint128 },
+    /// Pull `amount` from `owner` to `recipient`. Requires the locker to be
+    /// granted spender rights via `IncreaseAllowance` on the cw20 contract
+    /// first. Used by `execute_lock_cw20` so the cw20 deposit lands atomically
+    /// with the native creation-fee forward.
+    TransferFrom { owner: String, recipient: String, amount: Uint128 },
 }
 
 /// Subset of `cw20::Cw20QueryMsg` used to probe whether a sender is a cw20

@@ -121,7 +121,66 @@ export function buildLockNative(
     });
 }
 
+/// Cw20 `IncreaseAllowance` builder — the caller grants the locker spender
+/// rights for `amount` so a subsequent `LockCw20` can pull via TransferFrom.
+/// Returns a single `MsgExecuteContractCompat` targeting the cw20 contract.
+export function buildIncreaseAllowance(
+    args: BuildArgs & { cw20: string; amount: string },
+) {
+    return MsgExecuteContractCompat.fromJSON({
+        sender: args.sender,
+        contractAddress: args.cw20,
+        msg: {
+            increase_allowance: {
+                spender: args.contract,
+                amount: args.amount,
+            },
+        },
+        funds: [],
+    });
+}
+
+/// Cw20 lock via the M-4 fee-enforced path. Builds the locker's `LockCw20`
+/// execute, with the native `creation_fee` (if any) attached. This MUST be
+/// batched with a preceding `buildIncreaseAllowance` so the locker's
+/// internal `TransferFrom` can pull `amount` from the caller atomically.
 export function buildLockCw20(
+    args: BuildArgs & {
+        cw20: string;
+        amount: string;
+        schedule: Schedule;
+        title?: string;
+        description?: string;
+        creationFee?: { denom: string; amount: string };
+    },
+) {
+    const lockMsg: ExecuteMsg = {
+        lock_cw20: {
+            cw20_addr: args.cw20,
+            amount: args.amount,
+            schedule: args.schedule,
+            title: args.title || null,
+            description: args.description || null,
+        },
+    };
+
+    // Funds: only the native creation fee (cw20 deposit travels via TransferFrom).
+    const funds = args.creationFee
+        ? [{ denom: args.creationFee.denom, amount: args.creationFee.amount }]
+        : [];
+
+    return MsgExecuteContractCompat.fromJSON({
+        sender: args.sender,
+        contractAddress: args.contract,
+        msg: lockMsg,
+        funds,
+    });
+}
+
+/// Legacy cw20 lock via Send→Receive. ONLY valid when no `creation_fee` is
+/// configured on the locker (otherwise the contract rejects with
+/// `Cw20LockRequiresFeePath`). Kept for the no-fee deployment shape.
+export function buildLockCw20Receive(
     args: BuildArgs & {
         cw20: string;
         amount: string;

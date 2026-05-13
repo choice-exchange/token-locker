@@ -4,7 +4,7 @@ import { useConfig } from "../hooks/useLocker";
 import { useLockerAddress, useWallet } from "../wallet/useWallet";
 import { NETWORKS } from "../constants";
 import { broadcast } from "../wallet/walletStrategy";
-import { buildLockCw20, buildLockNative } from "../chain/locker";
+import { buildIncreaseAllowance, buildLockCw20, buildLockNative } from "../chain/locker";
 import { AmountInput } from "../components/AmountInput";
 import { ScheduleBuilder } from "../components/ScheduleBuilder";
 import type { ScheduleKind } from "../components/ScheduleBuilder";
@@ -51,7 +51,12 @@ export function CreateLockTab() {
         if (!ready || !scheduleOut.schedule) return;
         setSubmitting(true);
         try {
-            const msg =
+            // Native: one message (fee combined into info.funds).
+            // cw20: batch IncreaseAllowance + LockCw20 in one tx so the locker's
+            //       internal TransferFrom can pull `amount` atomically with the
+            //       fee forward. M-4 audit fix — the legacy Send→Receive path
+            //       is rejected by the contract when a creation_fee is set.
+            const msgs =
                 denomKind === "native"
                     ? buildLockNative({
                           sender: address!,
@@ -63,16 +68,25 @@ export function CreateLockTab() {
                           description: description || undefined,
                           creationFee: creationFee || undefined,
                       })
-                    : buildLockCw20({
-                          sender: address!,
-                          contract,
-                          cw20: denom.trim(),
-                          amount: amountBase,
-                          schedule: scheduleOut.schedule,
-                          title: title || undefined,
-                          description: description || undefined,
-                      });
-            const res = await broadcast(network, address!, msg);
+                    : [
+                          buildIncreaseAllowance({
+                              sender: address!,
+                              contract,
+                              cw20: denom.trim(),
+                              amount: amountBase,
+                          }),
+                          buildLockCw20({
+                              sender: address!,
+                              contract,
+                              cw20: denom.trim(),
+                              amount: amountBase,
+                              schedule: scheduleOut.schedule,
+                              title: title || undefined,
+                              description: description || undefined,
+                              creationFee: creationFee || undefined,
+                          }),
+                      ];
+            const res = await broadcast(network, address!, msgs);
             toast.success(
                 <div>
                     Lock created
@@ -237,8 +251,16 @@ export function CreateLockTab() {
                     )}
                     {denomKind === "cw20" && (
                         <div className="text-xs text-ink-300">
-                            cw20 deposits go via the token's Send hook (Cw20HookMsg::Lock). No creation
-                            fee is charged on cw20 locks.
+                            cw20 locks are deposited via <span className="font-mono">Cw20::TransferFrom</span>.
+                            We&apos;ll batch <span className="font-mono">IncreaseAllowance</span> + {" "}
+                            <span className="font-mono">LockCw20</span> in a single tx — your wallet
+                            will show two messages.
+                            {creationFee && (
+                                <>
+                                    {" "}
+                                    The native creation fee is charged atomically with the deposit.
+                                </>
+                            )}
                         </div>
                     )}
                     <button

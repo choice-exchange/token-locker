@@ -80,6 +80,19 @@ export type ExecuteMsg =
               description?: string | null;
           };
       }
+    | {
+          // Cw20 lock with native creation fee. Caller must first grant
+          // IncreaseAllowance(spender=locker) on the cw20 contract, then call
+          // this with the creation_fee attached. The locker pulls via
+          // Cw20::TransferFrom and forwards the fee atomically.
+          lock_cw20: {
+              cw20_addr: string;
+              amount: Uint128;
+              schedule: Schedule;
+              title?: string | null;
+              description?: string | null;
+          };
+      }
     | { receive: { sender: string; amount: Uint128; msg: string } }
     | { extend: { id: number; new_unlock_at: TimestampNs } }
     | { top_up: { id: number; amount: Uint128 } }

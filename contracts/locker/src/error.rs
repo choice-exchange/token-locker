@@ -18,6 +18,9 @@ pub enum ContractError {
     #[error("cw20 deposits must arrive via Cw20::Send -> Receive")]
     Cw20MustUseReceive {},
 
+    #[error("creation_fee is configured: cw20 locks must use ExecuteMsg::LockCw20 (allowance flow) so the native fee can be charged atomically")]
+    Cw20LockRequiresFeePath {},
+
     #[error("sender {0} is not a cw20 contract")]
     NotACw20Contract(String),
 
