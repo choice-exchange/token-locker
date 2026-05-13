@@ -18,6 +18,9 @@ pub enum ContractError {
     #[error("cw20 deposits must arrive via Cw20::Send -> Receive")]
     Cw20MustUseReceive {},
 
+    #[error("sender {0} is not a cw20 contract")]
+    NotACw20Contract(String),
+
     #[error("attached funds do not match declared lock amount or denom")]
     WrongFundsAttached {},
 

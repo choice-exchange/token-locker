@@ -5,7 +5,7 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 use cw_storage_plus::Bound;
 
-use crate::cw20::Cw20ReceiveMsg;
+use crate::cw20::{Cw20QueryMsg, Cw20ReceiveMsg, TokenInfoResponse};
 
 use crate::denom::{CheckedDenom, UncheckedDenom};
 use crate::error::ContractError;
@@ -115,6 +115,18 @@ pub fn execute(
     }
 }
 
+/// Probe the sender with a `TokenInfo {}` query. A successful decode means the
+/// address hosts a contract that responds to the cw20 query interface — close
+/// enough to reject EOAs and plainly-unrelated contracts. A malicious cw20 can
+/// still pass this gate, but any lock it spawns is denominated in itself, so
+/// the blast radius is limited to that malicious denom.
+fn assert_is_cw20(deps: Deps, addr: &Addr) -> Result<(), ContractError> {
+    deps.querier
+        .query_wasm_smart::<TokenInfoResponse>(addr, &Cw20QueryMsg::TokenInfo {})
+        .map_err(|_| ContractError::NotACw20Contract(addr.to_string()))?;
+    Ok(())
+}
+
 // ─── creation ────────────────────────────────────────────────────────────────
 
 #[allow(clippy::too_many_arguments)]
@@ -173,6 +185,12 @@ fn execute_receive(
 ) -> Result<Response, ContractError> {
     // info.sender is the cw20 contract address.
     let cw20_addr = info.sender.clone();
+    // Probe `TokenInfo` to ensure `info.sender` is actually a cw20 contract.
+    // Without this, anyone can craft a Receive directly from an EOA and create
+    // phantom locks (denom = attacker eoa, owner = arbitrary address),
+    // polluting LOCKS_BY_OWNER / LOCKS_BY_DENOM. No funds-theft vector, but
+    // the spam attribution is misleading to frontends and OTC flows.
+    assert_is_cw20(deps.as_ref(), &cw20_addr)?;
     let depositor = deps.api.addr_validate(&rcv.sender)?;
     let amount = rcv.amount;
     let hook: Cw20HookMsg = from_json(&rcv.msg)?;

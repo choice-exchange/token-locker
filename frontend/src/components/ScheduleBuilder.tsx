@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { Schedule } from "../types/locker";
 import { fromLocalInput, toLocalInput, dateToNanos } from "../utils/time";
 import { toBaseUnits } from "../utils/amount";
@@ -120,14 +120,18 @@ export function ScheduleBuilder({
 
             {kind === "cliff" && (
                 <div>
-                    <label>Unlock at</label>
-                    <input
-                        type="datetime-local"
+                    <label>Unlock date and time</label>
+                    <DateTimeField
                         value={cliffAt}
-                        onChange={(e) => setCliffAt(e.target.value)}
+                        onChange={setCliffAt}
+                        ariaLabel="Unlock date and time"
+                    />
+                    <CliffPresetSlider
+                        current={cliffAt}
+                        onPick={(months) => setCliffAt(toLocalInput(addMonths(new Date(), months)))}
                     />
                     <p className="text-xs text-ink-300 mt-1">
-                        100% claimable at this moment. Cliff is the only schedule that allows top-up + extend.
+                        100% claimable at this moment ({localTzLabel()}). Cliff is the only schedule that allows top-up + extend.
                     </p>
                 </div>
             )}
@@ -136,22 +140,22 @@ export function ScheduleBuilder({
                 <div className="grid grid-cols-2 gap-3">
                     <div>
                         <label>Start at</label>
-                        <input
-                            type="datetime-local"
+                        <DateTimeField
                             value={startAt}
-                            onChange={(e) => setStartAt(e.target.value)}
+                            onChange={setStartAt}
+                            ariaLabel="Vest start date and time"
                         />
                     </div>
                     <div>
                         <label>End at</label>
-                        <input
-                            type="datetime-local"
+                        <DateTimeField
                             value={endAt}
-                            onChange={(e) => setEndAt(e.target.value)}
+                            onChange={setEndAt}
+                            ariaLabel="Vest end date and time"
                         />
                     </div>
                     <p className="col-span-2 text-xs text-ink-300">
-                        Linear vest: 0% at start → 100% at end. Immutable; no top-up / extend.
+                        Linear vest: 0% at start → 100% at end ({localTzLabel()}). Immutable; no top-up / extend.
                     </p>
                 </div>
             )}
@@ -166,10 +170,10 @@ export function ScheduleBuilder({
                         {steps.map((row, i) => (
                             <div key={i} className="flex gap-2 items-center">
                                 <span className="text-xs text-ink-300 w-6">{i + 1}.</span>
-                                <input
-                                    type="datetime-local"
+                                <DateTimeField
                                     value={row.when}
-                                    onChange={(e) => updateStep(setSteps, i, { when: e.target.value })}
+                                    onChange={(v) => updateStep(setSteps, i, { when: v })}
+                                    ariaLabel={`Breakpoint ${i + 1} date and time`}
                                     className="!py-1.5 !text-xs"
                                 />
                                 <input
@@ -217,6 +221,141 @@ function updateStep(
     patch: Partial<PiecewiseRow>,
 ) {
     setSteps((s) => s.map((row, j) => (i === j ? { ...row, ...patch } : row)));
+}
+
+// One-stop datetime input: clicking anywhere opens the native picker (via
+// HTMLInputElement.showPicker) rather than only the small webkit indicator at
+// the right edge. Keeps typing/arrow-key editing intact for keyboard users.
+function DateTimeField({
+    value,
+    onChange,
+    ariaLabel,
+    className = "",
+}: {
+    value: string;
+    onChange: (v: string) => void;
+    ariaLabel?: string;
+    className?: string;
+}) {
+    const ref = useRef<HTMLInputElement>(null);
+    const openPicker = () => {
+        const el = ref.current;
+        if (!el) return;
+        // showPicker exists in Chromium/Firefox; Safari falls back to focus,
+        // which still surfaces the inline date wheel on touch devices.
+        if (typeof el.showPicker === "function") {
+            try { el.showPicker(); } catch { /* user-activation race; ignore */ }
+        } else {
+            el.focus();
+        }
+    };
+    return (
+        <div className="relative w-full">
+            <input
+                ref={ref}
+                type="datetime-local"
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                onClick={openPicker}
+                onFocus={openPicker}
+                aria-label={ariaLabel}
+                className={`!pr-10 ${className}`}
+            />
+            <button
+                type="button"
+                onClick={openPicker}
+                tabIndex={-1}
+                aria-label="Open date picker"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-primaryColor hover:opacity-80"
+            >
+                <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current" aria-hidden="true">
+                    <path d="M7 11h2v2H7v-2zm0 4h2v2H7v-2zm4-4h2v2h-2v-2zm0 4h2v2h-2v-2zm4-4h2v2h-2v-2zm0 4h2v2h-2v-2zM5 22h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2zm0-16h14v14H5V6z"/>
+                </svg>
+            </button>
+        </div>
+    );
+}
+
+// 4-stop snap slider — quick way to set the cliff to a common duration from
+// now without opening the picker. Manual edits via the datetime input still
+// work; the slider just "lights up" the stop that matches the current value.
+const CLIFF_PRESETS = [
+    { label: "1mo", months: 1 },
+    { label: "6mo", months: 6 },
+    { label: "12mo", months: 12 },
+    { label: "24mo", months: 24 },
+] as const;
+
+function CliffPresetSlider({
+    current,
+    onPick,
+}: {
+    current: string;
+    onPick: (months: number) => void;
+}) {
+    // Map the current value to the closest preset (within ~2 days) for the
+    // thumb position. -1 means "user picked a custom date that doesn't match
+    // any preset" — slider shows no active stop.
+    const activeIdx = useMemo(() => nearestPresetIndex(current), [current]);
+    return (
+        <div className="mt-2">
+            <input
+                type="range"
+                min={0}
+                max={CLIFF_PRESETS.length - 1}
+                step={1}
+                value={activeIdx >= 0 ? activeIdx : 0}
+                onChange={(e) => onPick(CLIFF_PRESETS[parseInt(e.target.value, 10)].months)}
+                aria-label="Quick unlock duration"
+                className="w-full accent-primaryColor cursor-pointer"
+            />
+            <div className="flex justify-between text-xs mt-1 select-none">
+                {CLIFF_PRESETS.map((p, i) => (
+                    <button
+                        key={p.label}
+                        type="button"
+                        onClick={() => onPick(p.months)}
+                        className={
+                            "px-1 rounded transition-colors " +
+                            (i === activeIdx
+                                ? "text-primaryColor font-semibold"
+                                : "text-ink-300 hover:text-ink-100")
+                        }
+                    >
+                        {p.label}
+                    </button>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function nearestPresetIndex(localInputValue: string): number {
+    const d = fromLocalInput(localInputValue);
+    if (!d) return -1;
+    const now = Date.now();
+    const deltaMs = d.getTime() - now;
+    if (deltaMs <= 0) return -1;
+    const TOLERANCE_MS = 2 * 24 * 3600 * 1000; // ±2 days
+    for (let i = 0; i < CLIFF_PRESETS.length; i++) {
+        const target = addMonths(new Date(now), CLIFF_PRESETS[i].months).getTime() - now;
+        if (Math.abs(deltaMs - target) <= TOLERANCE_MS) return i;
+    }
+    return -1;
+}
+
+function addMonths(date: Date, months: number): Date {
+    const d = new Date(date);
+    d.setMonth(d.getMonth() + months);
+    return d;
+}
+
+function localTzLabel(): string {
+    try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    } catch {
+        return "local time";
+    }
 }
 
 function in1Day() {

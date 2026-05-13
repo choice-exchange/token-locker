@@ -24,16 +24,17 @@ recipient, and there is **no admin clawback** of locked funds.
 - **Rust 1.88** for local development; **nightly + build-std** for wasm artifacts
   (needed to strip bulk-memory ops that Injective's cosmwasm-vm rejects — see
   [`build_release.sh`](build_release.sh))
-- No cw20 crate dep — the two messages we use (`Cw20ReceiveMsg`, `Cw20ExecuteMsg::Transfer`)
-  are vendored as [`cw20.rs`](contracts/locker/src/cw20.rs) since upstream `cw20 = "2.0"`
-  still pins cw-std to 2.x
+- No cw20 crate dep — the messages we use (`Cw20ReceiveMsg`,
+  `Cw20ExecuteMsg::Transfer`, `Cw20QueryMsg::TokenInfo`) are vendored as
+  [`cw20.rs`](contracts/locker/src/cw20.rs) since upstream `cw20 = "2.0"` still
+  pins cw-std to 2.x
 
 ---
 
 ## Quick Start
 
 ```bash
-# Dev build + unit tests (12 tests)
+# Dev build + unit tests (34 tests)
 cargo build && cargo test --lib
 
 # Build VM-compatible wasm artifact (requires nightly + rust-src)
@@ -94,10 +95,14 @@ enum Schedule {
     /// (only while the lock is still locked — both reject once unlock_at has passed).
     Cliff { unlock_at: Timestamp },
 
-    /// Linear vest from start_at to end_at. Top-up and Extend are REJECTED.
+    /// Linear vest from start_at to end_at. `start_at` must NOT be in the past
+    /// (backdated vests would make a portion immediately claimable, contradicting
+    /// the "linear from start" contract). Top-up and Extend REJECTED.
     SaturatingLinear { start_at: Timestamp, end_at: Timestamp },
 
     /// Piecewise-linear: a sorted list of (time, cumulative-claimable) breakpoints.
+    /// First step amount MUST be zero (a non-zero first step would create a hidden
+    /// cliff at `steps[0].0 + 1s` because the first-segment lerp starts from `a0`).
     /// Final amount must equal lock total. Top-up and Extend REJECTED.
     /// Capped at 50 steps to bound storage and pagination gas.
     PiecewiseLinear { steps: Vec<(Timestamp, Uint128)> },
@@ -188,6 +193,13 @@ inner hook payload (base64-encoded `Cw20HookMsg`) and call the cw20:
 The locker's `Receive` handler treats the cw20 contract address as the lock's
 denom, the `rcv.sender` as the new lock owner, and `rcv.amount` as the deposit.
 
+Before processing, the handler probes `info.sender` with a `Cw20QueryMsg::TokenInfo {}`
+query and rejects with `NotACw20Contract` if it does not respond. This blocks
+EOAs and unrelated contracts from spoofing `Receive` to forge phantom locks in
+the indexes. A genuinely malicious cw20 can still pass the probe, but any lock
+it creates is denominated in itself, so the blast radius is limited to that
+specific token.
+
 #### Withdrawing
 
 ```jsonc
@@ -269,6 +281,10 @@ The contract enforces these properties — each has a corresponding test:
    matching the declared denom; the amount must equal `lock.amount` (plus
    `creation_fee` if configured). Multi-denom attachments rejected.
 5. **cw20 amounts are trusted from `Cw20ReceiveMsg`,** never from inner JSON.
+   `Receive` additionally probes `info.sender` with `Cw20QueryMsg::TokenInfo {}`
+   and rejects non-cw20 senders (EOAs, unrelated contracts) — this prevents
+   spoofed `Receive` calls from creating phantom locks attributed to arbitrary
+   addresses.
 6. **Top-up cw20 must match the lock's cw20.** A lock for token A cannot be
    topped up with token B.
 7. **Top-up rejects post-unlock.** Misdirected funds revert instead of
@@ -284,6 +300,11 @@ The contract enforces these properties — each has a corresponding test:
     `Lock` entry point.
 11. **`PiecewiseLinear.steps` is capped at 50** to bound per-lock storage
     and pagination gas.
+12. **Schedule sanity is enforced at creation.**
+    `SaturatingLinear.start_at` must not be in the past (`start_at >= now`);
+    `PiecewiseLinear.steps[0].1` must be zero. These rules close two
+    foot-guns where a user could otherwise create a lock that releases
+    funds instantly while looking like a multi-step vest.
 
 ### Operational caveats (read before mainnet deploy)
 
@@ -366,7 +387,7 @@ mirror of the schema. Once that UI is graduated, the long-term home is
 
 ## Testing
 
-### Unit tests (12, fast)
+### Unit tests (34, fast)
 
 Pure-Rust tests against `mock_dependencies()`:
 

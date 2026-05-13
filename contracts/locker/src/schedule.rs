@@ -23,11 +23,13 @@ pub enum Schedule {
     Cliff { unlock_at: Timestamp },
 
     /// Linear vest from `start_at` (0%) to `end_at` (100%). Reverts before
-    /// `start_at`; saturates at `total` after `end_at`. Immutable.
+    /// `start_at`; saturates at `total` after `end_at`. `start_at` must be
+    /// `>= now` at validation time. Immutable.
     SaturatingLinear { start_at: Timestamp, end_at: Timestamp },
 
     /// Piecewise-linear interpolation between sorted `(time, cumulative)`
-    /// breakpoints. The final amount must equal the lock's `total`.
+    /// breakpoints. `steps[0].1` MUST be zero (otherwise a hidden cliff appears
+    /// at `steps[0].0 + 1s`). The final amount must equal the lock's `total`.
     /// Immutable.
     PiecewiseLinear { steps: Vec<(Timestamp, Uint128)> },
 }
@@ -50,6 +52,15 @@ impl Schedule {
                         "end_at must be after start_at".into(),
                     ));
                 }
+                // Backdated `start_at` would make part of the lock immediately
+                // claimable at creation, contradicting the "linear vest from
+                // start_at forward" contract readers expect. Require start_at
+                // to be no earlier than `now`.
+                if start_at.seconds() < now.seconds() {
+                    return Err(ContractError::InvalidSchedule(
+                        "start_at must not be in the past".into(),
+                    ));
+                }
                 if end_at.seconds() <= now.seconds() {
                     return Err(ContractError::UnlockNotInFuture {});
                 }
@@ -63,6 +74,15 @@ impl Schedule {
                         max: MAX_PIECEWISE_STEPS,
                         got: steps.len(),
                     });
+                }
+                // First step's amount must be zero — non-zero would create a
+                // hidden cliff at `t > steps[0].0` (the first-segment lerp
+                // starts from `a0`, so `a0` vests instantly), which the
+                // "piecewise-linear interpolation" name does not advertise.
+                if !steps[0].1.is_zero() {
+                    return Err(ContractError::InvalidSchedule(
+                        "first step amount must be zero".into(),
+                    ));
                 }
                 let mut last_t = 0u64;
                 let mut last_a = Uint128::zero();

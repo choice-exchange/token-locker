@@ -17,16 +17,31 @@
         font-family: "Montserrat", "Inter", system-ui, sans-serif;
         box-sizing: border-box;
     }
-    input,
+    input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
     select,
     textarea {
         @apply bg-btnGrey border border-ink-500 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-primaryColor focus:border-primaryColor text-white;
     }
-    /* date picker icons readable on dark bg */
+    /* Range slider: bare native control, brand-accented thumb/track. */
+    input[type="range"] {
+        @apply w-full accent-primaryColor;
+    }
+    /* Date/time inputs: dark color-scheme themes the native picker popup,
+       and we hide the (unreliably-rendered) native indicator in favor of an
+       always-visible primaryColor calendar button rendered by DateTimeField. */
+    input[type="datetime-local"],
+    input[type="date"],
+    input[type="time"] {
+        cursor: pointer;
+        color-scheme: dark;
+    }
     input[type="datetime-local"]::-webkit-calendar-picker-indicator,
     input[type="date"]::-webkit-calendar-picker-indicator,
     input[type="time"]::-webkit-calendar-picker-indicator {
-        filter: invert(1);
+        opacity: 0;
+        width: 0;
+        padding: 0;
+        margin: 0;
     }
     label {
         @apply text-xs uppercase tracking-wide text-textGrey font-medium;

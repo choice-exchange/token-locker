@@ -1,9 +1,10 @@
 use cosmwasm_std::testing::{message_info, mock_dependencies, mock_env, MockApi};
 use cosmwasm_std::{
-    coins, from_json, Addr, BankMsg, Coin, CosmosMsg, Timestamp, Uint128, Uint256, WasmMsg,
+    coins, from_json, to_json_binary, Addr, BankMsg, Coin, ContractResult, CosmosMsg, SystemResult,
+    Timestamp, Uint128, Uint256, WasmMsg, WasmQuery,
 };
 use crate::contract::{execute, instantiate, query};
-use crate::cw20::Cw20ReceiveMsg;
+use crate::cw20::{Cw20ReceiveMsg, TokenInfoResponse};
 use crate::denom::UncheckedDenom;
 use crate::error::ContractError;
 use crate::msg::{
@@ -43,8 +44,30 @@ fn setup(creation_fee: Option<Coin>) -> (
     Actors,
 ) {
     let mut deps = mock_dependencies();
-    let env = mock_env();
     let a = actors();
+    // Wire the wasm querier so the cw20 sanity probe (`TokenInfo {}`) succeeds
+    // for the canonical `cw20` test address and fails for everything else.
+    let cw20_addr = a.cw20.to_string();
+    deps.querier.update_wasm(move |q: &WasmQuery| match q {
+        WasmQuery::Smart { contract_addr, .. } if contract_addr == &cw20_addr => {
+            SystemResult::Ok(ContractResult::Ok(
+                to_json_binary(&TokenInfoResponse {
+                    name: "Test".to_string(),
+                    symbol: "TST".to_string(),
+                    decimals: 6,
+                    total_supply: Uint128::new(1_000_000),
+                })
+                .unwrap(),
+            ))
+        }
+        _ => SystemResult::Err(cosmwasm_std::SystemError::NoSuchContract {
+            addr: match q {
+                WasmQuery::Smart { contract_addr, .. } => contract_addr.clone(),
+                _ => "unknown".to_string(),
+            },
+        }),
+    });
+    let env = mock_env();
     let info = message_info(&a.admin, &[]);
     instantiate(
         deps.as_mut(),
@@ -888,4 +911,79 @@ fn withdraw_nothing_claimable_after_full_drain() {
     )
     .unwrap_err();
     assert!(matches!(err, ContractError::NothingClaimable {}));
+}
+
+// ─── audit fixes ─────────────────────────────────────────────────────────────
+
+#[test]
+fn receive_rejects_non_cw20_sender() {
+    // Spoofed Receive from an EOA / non-cw20: the wasm querier reports
+    // NoSuchContract for any address other than `a.cw20`, so the probe fails.
+    let (mut deps, a) = setup(None);
+    let env = mock_env();
+    let unlock_at = future(&env, 1000);
+
+    let hook = Cw20HookMsg::Lock {
+        schedule: Schedule::Cliff { unlock_at },
+        title: None,
+        description: None,
+    };
+    let rcv = Cw20ReceiveMsg {
+        sender: a.alice.to_string(),
+        amount: Uint128::new(1234),
+        msg: cosmwasm_std::to_json_binary(&hook).unwrap(),
+    };
+    // info.sender = alice (an EOA in this test setup), NOT the registered cw20.
+    let info = message_info(&a.alice, &[]);
+    let err = execute(deps.as_mut(), env, info, ExecuteMsg::Receive(rcv)).unwrap_err();
+    assert!(matches!(err, ContractError::NotACw20Contract(_)), "{err:?}");
+}
+
+#[test]
+fn validate_rejects_saturating_linear_backdated_start() {
+    let (mut deps, a) = setup(None);
+    let env = mock_env();
+    let start = env.block.time.minus_seconds(1);
+    let end = env.block.time.plus_seconds(1000);
+    let info = message_info(&a.alice, &coins(100, DENOM));
+    let err = execute(
+        deps.as_mut(),
+        env,
+        info,
+        ExecuteMsg::Lock {
+            denom: UncheckedDenom::Native(DENOM.into()),
+            amount: Uint128::new(100),
+            schedule: Schedule::SaturatingLinear { start_at: start, end_at: end },
+            title: None,
+            description: None,
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(err, ContractError::InvalidSchedule(_)), "{err:?}");
+}
+
+#[test]
+fn validate_rejects_piecewise_nonzero_first_step() {
+    let (mut deps, a) = setup(None);
+    let env = mock_env();
+    let info = message_info(&a.alice, &coins(1000, DENOM));
+    let err = execute(
+        deps.as_mut(),
+        env.clone(),
+        info,
+        ExecuteMsg::Lock {
+            denom: UncheckedDenom::Native(DENOM.into()),
+            amount: Uint128::new(1000),
+            schedule: Schedule::PiecewiseLinear {
+                steps: vec![
+                    (env.block.time.plus_seconds(100), Uint128::new(500)),
+                    (env.block.time.plus_seconds(1000), Uint128::new(1000)),
+                ],
+            },
+            title: None,
+            description: None,
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(err, ContractError::InvalidSchedule(_)), "{err:?}");
 }
