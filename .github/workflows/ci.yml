@@ -21,6 +21,12 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: clippy, rustfmt
+          # setup-rust-toolchain auto-runs Swatinem/rust-cache with
+          # cache-targets: true. We disable it here so our explicit step
+          # below is authoritative — otherwise target/ gets restored before
+          # we can opt out, libinjectivetesttube.so is Fresh, and linking
+          # the integration test fails to find libwasmvm.x86_64.so.
+          cache: false
 
       - name: Cache cargo registry (not target/)
         uses: Swatinem/rust-cache@v2
