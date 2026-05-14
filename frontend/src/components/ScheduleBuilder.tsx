@@ -128,7 +128,7 @@ export function ScheduleBuilder({
                     />
                     <CliffPresetSlider
                         current={cliffAt}
-                        onPick={(months) => setCliffAt(toLocalInput(addMonths(new Date(), months)))}
+                        onPick={(days) => setCliffAt(toLocalInput(addDays(new Date(), days)))}
                     />
                     <p className="text-xs text-ink-300 mt-1">
                         100% claimable at this moment ({localTzLabel()}). Cliff is the only schedule that allows top-up + extend.
@@ -276,14 +276,16 @@ function DateTimeField({
     );
 }
 
-// 4-stop snap slider — quick way to set the cliff to a common duration from
-// now without opening the picker. Manual edits via the datetime input still
-// work; the slider just "lights up" the stop that matches the current value.
+// Continuous day-scale slider — drag to set the cliff to any duration from 0
+// days up to MAX_CLIFF_DAYS. Manual edits via the datetime input still work;
+// the slider just tracks whatever the current value resolves to.
+const MAX_CLIFF_DAYS = 730;
 const CLIFF_PRESETS = [
-    { label: "1mo", months: 1 },
-    { label: "6mo", months: 6 },
-    { label: "12mo", months: 12 },
-    { label: "24mo", months: 24 },
+    { label: "now", days: 0 },
+    { label: "1mo", days: 30 },
+    { label: "6mo", days: 180 },
+    { label: "12mo", days: 365 },
+    { label: "24mo", days: 730 },
 ] as const;
 
 function CliffPresetSlider({
@@ -291,33 +293,35 @@ function CliffPresetSlider({
     onPick,
 }: {
     current: string;
-    onPick: (months: number) => void;
+    onPick: (days: number) => void;
 }) {
-    // Map the current value to the closest preset (within ~2 days) for the
-    // thumb position. -1 means "user picked a custom date that doesn't match
-    // any preset" — slider shows no active stop.
-    const activeIdx = useMemo(() => nearestPresetIndex(current), [current]);
+    const currentDays = useMemo(() => deltaDays(current), [current]);
+    const sliderValue = Math.max(0, Math.min(MAX_CLIFF_DAYS, currentDays));
     return (
         <div className="mt-2">
+            <div className="flex justify-between text-xs mb-1 select-none">
+                <span className="text-ink-300">Duration</span>
+                <span className="text-primaryColor font-semibold">{formatDuration(currentDays)}</span>
+            </div>
             <input
                 type="range"
                 min={0}
-                max={CLIFF_PRESETS.length - 1}
+                max={MAX_CLIFF_DAYS}
                 step={1}
-                value={activeIdx >= 0 ? activeIdx : 0}
-                onChange={(e) => onPick(CLIFF_PRESETS[parseInt(e.target.value, 10)].months)}
+                value={sliderValue}
+                onChange={(e) => onPick(parseInt(e.target.value, 10))}
                 aria-label="Quick unlock duration"
                 className="w-full accent-primaryColor cursor-pointer"
             />
             <div className="flex justify-between text-xs mt-1 select-none">
-                {CLIFF_PRESETS.map((p, i) => (
+                {CLIFF_PRESETS.map((p) => (
                     <button
                         key={p.label}
                         type="button"
-                        onClick={() => onPick(p.months)}
+                        onClick={() => onPick(p.days)}
                         className={
                             "px-1 rounded transition-colors " +
-                            (i === activeIdx
+                            (Math.abs(currentDays - p.days) <= 1
                                 ? "text-primaryColor font-semibold"
                                 : "text-ink-300 hover:text-ink-100")
                         }
@@ -330,24 +334,29 @@ function CliffPresetSlider({
     );
 }
 
-function nearestPresetIndex(localInputValue: string): number {
+function deltaDays(localInputValue: string): number {
     const d = fromLocalInput(localInputValue);
-    if (!d) return -1;
-    const now = Date.now();
-    const deltaMs = d.getTime() - now;
-    if (deltaMs <= 0) return -1;
-    const TOLERANCE_MS = 2 * 24 * 3600 * 1000; // ±2 days
-    for (let i = 0; i < CLIFF_PRESETS.length; i++) {
-        const target = addMonths(new Date(now), CLIFF_PRESETS[i].months).getTime() - now;
-        if (Math.abs(deltaMs - target) <= TOLERANCE_MS) return i;
-    }
-    return -1;
+    if (!d) return 0;
+    const deltaMs = d.getTime() - Date.now();
+    return Math.round(deltaMs / (24 * 3600 * 1000));
 }
 
-function addMonths(date: Date, months: number): Date {
-    const d = new Date(date);
-    d.setMonth(d.getMonth() + months);
-    return d;
+function formatDuration(days: number): string {
+    if (days <= 0) return "now";
+    if (days < 30) return `${days}d`;
+    const years = Math.floor(days / 365);
+    const remAfterY = days - years * 365;
+    const months = Math.floor(remAfterY / 30);
+    const remDays = remAfterY - months * 30;
+    const parts: string[] = [];
+    if (years > 0) parts.push(`${years}y`);
+    if (months > 0) parts.push(`${months}mo`);
+    if (remDays > 0 && years === 0) parts.push(`${remDays}d`);
+    return parts.join(" ");
+}
+
+function addDays(date: Date, days: number): Date {
+    return new Date(date.getTime() + days * 24 * 3600 * 1000);
 }
 
 function localTzLabel(): string {
