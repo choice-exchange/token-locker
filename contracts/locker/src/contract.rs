@@ -32,7 +32,7 @@ const MAX_BATCH_IDS: usize = 100;
 #[entry_point]
 pub fn instantiate(
     deps: DepsMut,
-    env: Env,
+    _env: Env,
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
@@ -50,35 +50,11 @@ pub fn instantiate(
 
     validate_fee_config(&msg.creation_fee, &fee_collector)?;
 
-    // H-2: enforce that the wasm `admin` (the address authorized to call
-    // `MsgMigrateContract`) matches `Config.admin`. The contract holds escrowed
-    // user funds; a wasm-admin compromise that diverges from the on-chain admin
-    // would let the migrator swap the code and drain every Lock. Either both
-    // are the same address (typical: a governance multisig + admin-timelock),
-    // or the wasm admin is unset (the code is locked, no migrate path at all).
-    let wasm_info = deps
-        .querier
-        .query_wasm_contract_info(env.contract.address.as_str())?;
-    match (&wasm_info.admin, &admin) {
-        (Some(actual), Some(expected)) if actual.as_str() == expected.as_str() => {}
-        (None, _) => {
-            // No wasm admin — migrates are impossible at the chain level, so
-            // the alignment requirement is vacuous. This is the strictest /
-            // most defensive deployment.
-        }
-        (Some(actual), expected) => {
-            return Err(ContractError::InvalidConfig(format!(
-                "wasm admin ({}) must match Config.admin ({}): a wasm-admin \
-                 compromise would otherwise bypass the on-chain admin to \
-                 migrate the locker and drain user locks",
-                actual,
-                expected
-                    .as_ref()
-                    .map(|a| a.as_str().to_string())
-                    .unwrap_or_else(|| "<none>".into())
-            )));
-        }
-    }
+    // H-2 (wasm-admin == Config.admin) is enforced by the deploy script
+    // post-instantiate. We can't self-query during instantiate on Injective's
+    // wasmd — the new ContractInfo isn't committed until the entrypoint
+    // returns, so `query_wasm_contract_info(self)` errors with "No such
+    // contract". Operator verifies the invariant after deploy.
 
     CONFIG.save(
         deps.storage,

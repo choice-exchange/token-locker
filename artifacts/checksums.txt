@@ -1,1 +1,1 @@
-2a7f69e2a6500ee58eaf23616c5b7844733fec86a3e1db7f410563d50200ff25  choice_token_locker.wasm
+931ea505146b6f6c59f4128fe57f0fe0831bd53bde3b28bf0eb124b10afa4d45  choice_token_locker.wasm

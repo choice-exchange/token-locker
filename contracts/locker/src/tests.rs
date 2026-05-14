@@ -1,7 +1,7 @@
 use cosmwasm_std::testing::{message_info, mock_dependencies, mock_env, MockApi};
 use cosmwasm_std::{
-    coins, from_json, to_json_binary, Addr, BankMsg, Coin, ContractInfoResponse, ContractResult,
-    CosmosMsg, SystemResult, Timestamp, Uint128, Uint256, WasmMsg, WasmQuery,
+    coins, from_json, to_json_binary, Addr, BankMsg, Coin, ContractResult, CosmosMsg, SystemResult,
+    Timestamp, Uint128, Uint256, WasmMsg, WasmQuery,
 };
 use crate::contract::{execute, instantiate, query};
 use crate::cw20::{Cw20ReceiveMsg, TokenInfoResponse};
@@ -45,14 +45,10 @@ fn setup(creation_fee: Option<Coin>) -> (
 ) {
     let mut deps = mock_dependencies();
     let a = actors();
-    // Wire the wasm querier so:
-    //   - the cw20 sanity probe (`TokenInfo {}`) succeeds for the canonical
-    //     `cw20` test address and fails for everything else
-    //   - the H-2 wasm-admin alignment query for the locker's own address
-    //     returns an admin matching `Config.admin`
+    // Wire the cw20 sanity probe (`TokenInfo {}`): succeed for the canonical
+    // test cw20 address, fail for everything else. H-2 wasm-admin alignment
+    // is now enforced by the deploy script post-instantiate, not in-contract.
     let cw20_addr = a.cw20.to_string();
-    let self_addr = mock_env().contract.address.to_string();
-    let self_admin = a.admin.to_string();
     deps.querier.update_wasm(move |q: &WasmQuery| match q {
         WasmQuery::Smart { contract_addr, .. } if contract_addr == &cw20_addr => {
             SystemResult::Ok(ContractResult::Ok(
@@ -64,17 +60,6 @@ fn setup(creation_fee: Option<Coin>) -> (
                 })
                 .unwrap(),
             ))
-        }
-        WasmQuery::ContractInfo { contract_addr } if contract_addr == &self_addr => {
-            let resp = ContractInfoResponse::new(
-                1,
-                Addr::unchecked("creator"),
-                Some(Addr::unchecked(self_admin.clone())),
-                false,
-                None,
-                None,
-            );
-            SystemResult::Ok(ContractResult::Ok(to_json_binary(&resp).unwrap()))
         }
         _ => SystemResult::Err(cosmwasm_std::SystemError::NoSuchContract {
             addr: match q {
@@ -1005,102 +990,13 @@ fn validate_rejects_piecewise_nonzero_first_step() {
     assert!(matches!(err, ContractError::InvalidSchedule(_)), "{err:?}");
 }
 
-// ─── H-1 / H-2 regressions ───────────────────────────────────────────────────
-
-/// Install a `WasmQuery::ContractInfo` handler that reports the configured
-/// wasm admin for the locker's own address. Pass `None` to simulate the
-/// "no wasm admin" deployment shape.
-fn install_self_contract_info(
-    deps: &mut cosmwasm_std::OwnedDeps<
-        cosmwasm_std::testing::MockStorage,
-        cosmwasm_std::testing::MockApi,
-        cosmwasm_std::testing::MockQuerier,
-    >,
-    admin: Option<String>,
-) {
-    let self_addr = mock_env().contract.address.to_string();
-    deps.querier.update_wasm(move |q: &WasmQuery| match q {
-        WasmQuery::ContractInfo { contract_addr } if contract_addr == &self_addr => {
-            let resp = ContractInfoResponse::new(
-                1,
-                Addr::unchecked("creator"),
-                admin.clone().map(Addr::unchecked),
-                false,
-                None,
-                None,
-            );
-            SystemResult::Ok(ContractResult::Ok(to_json_binary(&resp).unwrap()))
-        }
-        _ => SystemResult::Err(cosmwasm_std::SystemError::NoSuchContract {
-            addr: match q {
-                WasmQuery::Smart { contract_addr, .. } => contract_addr.clone(),
-                WasmQuery::ContractInfo { contract_addr } => contract_addr.clone(),
-                _ => "unknown".to_string(),
-            },
-        }),
-    });
-}
-
-#[test]
-fn h2_instantiate_rejects_wasm_admin_mismatch() {
-    let mut deps = mock_dependencies();
-    let a = actors();
-    install_self_contract_info(&mut deps, Some(a.alice.to_string()));
-    let info = message_info(&a.admin, &[]);
-    let err = crate::contract::instantiate(
-        deps.as_mut(),
-        mock_env(),
-        info,
-        InstantiateMsg {
-            admin: Some(a.admin.to_string()),
-            fee_collector: None,
-            creation_fee: None,
-        },
-    )
-    .unwrap_err();
-    assert!(
-        matches!(err, ContractError::InvalidConfig(ref m) if m.contains("wasm admin")),
-        "{err:?}"
-    );
-}
-
-#[test]
-fn h2_instantiate_allows_no_wasm_admin() {
-    let mut deps = mock_dependencies();
-    let a = actors();
-    install_self_contract_info(&mut deps, None);
-    let info = message_info(&a.admin, &[]);
-    crate::contract::instantiate(
-        deps.as_mut(),
-        mock_env(),
-        info,
-        InstantiateMsg {
-            admin: Some(a.admin.to_string()),
-            fee_collector: None,
-            creation_fee: None,
-        },
-    )
-    .unwrap();
-}
-
-#[test]
-fn h2_instantiate_accepts_matching_admins() {
-    let mut deps = mock_dependencies();
-    let a = actors();
-    install_self_contract_info(&mut deps, Some(a.admin.to_string()));
-    let info = message_info(&a.admin, &[]);
-    crate::contract::instantiate(
-        deps.as_mut(),
-        mock_env(),
-        info,
-        InstantiateMsg {
-            admin: Some(a.admin.to_string()),
-            fee_collector: None,
-            creation_fee: None,
-        },
-    )
-    .unwrap();
-}
+// ─── H-1 regressions ─────────────────────────────────────────────────────────
+//
+// H-2 instantiate-time wasm-admin alignment was removed from the contract —
+// Injective's wasmd doesn't expose the new ContractInfo via the querier during
+// `instantiate`, so the self-query fails with "No such contract". The
+// invariant is now enforced by the deploy script via two post-instantiate
+// queries.
 
 #[test]
 fn h1_migrate_rejects_foreign_cw2_contract() {
